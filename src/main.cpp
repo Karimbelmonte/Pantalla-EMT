@@ -1,25 +1,23 @@
 /*
- * Pantalla EMT (adaptación SOLO EMT + Weather)
+ * Pantalla EMT (EMT + Weather) + Watchdogs robustos
  *
  * Flujo:
- *  1) WiFiManager (portal cautivo) SOLO para credenciales WiFi.
+ *  1) WiFiManager SOLO para credenciales WiFi.
  *  2) WebServer para configurar:
- *     - StopId (parada)
- *     - Nombre en pantalla
- *     - Brillo
- *     - EMT Email (MobilityLabs Basic)
- *     - EMT Password (MobilityLabs Basic)
+ *     - StopId, StopName, Brillo
+ *     - EMT Email/Password (MobilityLabs Basic)
  *     - OpenWeather API key
- *     - NUEVO: Duración BUS (s) y TIEMPO (s)
+ *     - Duración pantalla BUS (s) y WEATHER (s)
  *
- * Pantallas (configurable):
- *  - BUS:     por defecto 45s
- *  - WEATHER: por defecto 10s
+ * Persistencia en LittleFS: /config.json
  *
- * Config persistente en LittleFS: /config.json
+ * Watchdogs:
+ *  - Task WDT (ESP32) para colgados reales del loopTask.
+ *  - Soft WDT (lógico) para estados "zombie" prolongados.
  */
 
 #include <Arduino.h>
+#include <functional>          // <-- IMPORTANTE para std::function
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
@@ -36,24 +34,24 @@
 
 #include <stationData.h>
 
-// ✅ Watchdog (ESP32 Task WDT)
+// Watchdog (ESP32 Task WDT)
 #include "esp_task_wdt.h"
 
 // ---------------------- Versión ----------------------
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 8
+#define VERSION_MINOR 9
 
-// ---------------------- Watchdog ----------------------
-// Si el loop se bloquea y no puede "alimentar" el WDT en este tiempo → reset
+// ---------------------- Watchdogs ----------------------
+// Task WDT: si el loopTask se bloquea (no "alimenta" el WDT) -> reset/panic
 static const int WDT_TIMEOUT_S = 15;
-
-// Cada cuánto alimentamos el WDT desde loop
 static unsigned long nextWdtFeedMs = 0;
 static const unsigned long WDT_FEED_PERIOD_MS = 250;
 
-// Soft watchdog (estado zombie, sin progreso útil)
+// Soft watchdog: si no hay "progreso" durante X -> reinicia (pero con latido mínimo para evitar falsos)
 static unsigned long lastHealthyTickMs = 0;
 static const unsigned long SOFT_WDT_MS = 5UL * 60UL * 1000UL; // 5 min
+static unsigned long lastLoopBeatMs = 0;                      // latido mínimo del loop
+static const unsigned long LOOP_BEAT_MS = 1000;              // 1s
 
 // ---------------------- Pantalla / OLED ----------------------
 #define SCREEN_WIDTH 256
@@ -95,7 +93,7 @@ struct AppConfig {
   // OpenWeather
   String weatherApiKey;
 
-  // NUEVO: duraciones UI (ms)
+  // Duraciones UI
   uint32_t uiBusMs;
   uint32_t uiWeatherMs;
 };
@@ -108,7 +106,6 @@ enum AppState : uint8_t {
   ST_NEED_STOP,
   ST_RUNNING
 };
-
 AppState appState = ST_BOOT;
 
 bool wifiConnected = false;
@@ -154,11 +151,6 @@ struct WeatherState {
   float feelsC = NAN;
   float minC = NAN;
   float maxC = NAN;
-  int humidity = -1;
-  int pressure = -1;
-
-  float windMs = NAN;
-  int windDeg = -1;
 
   char desc[48] = "";
   char icon[8] = "";
@@ -178,18 +170,20 @@ enum UiScreen : uint8_t { UI_BUS = 0, UI_WEATHER = 1 };
 static UiScreen uiScreen = UI_BUS;
 
 static unsigned long uiNextSwitchMs = 0;
-
-// AHORA configurables (se sincronizan desde cfg)
 static uint32_t UI_BUS_MS = 45000UL;
 static uint32_t UI_WEATHER_MS = 10000UL;
 
 static inline void uiScheduleNext() {
   uiNextSwitchMs = millis() + ((uiScreen == UI_BUS) ? UI_BUS_MS : UI_WEATHER_MS);
 }
-
 static inline void uiToggleScreen() {
   uiScreen = (uiScreen == UI_BUS) ? UI_WEATHER : UI_BUS;
   uiScheduleNext();
+}
+
+// ---------------------- Helpers: “salud” ----------------------
+static inline void markHealthy() {
+  lastHealthyTickMs = millis();
 }
 
 // ---------------------- Helpers: FS config ----------------------
@@ -210,7 +204,6 @@ static bool loadConfig(AppConfig& out) {
   out.emtStopName   = doc["emtStopName"]   | "EMT Madrid";
   out.weatherApiKey = doc["weatherApiKey"] | "";
 
-  // NUEVO: si no existe en JSON, pone defaults
   out.uiBusMs       = doc["uiBusMs"]       | 45000UL;
   out.uiWeatherMs   = doc["uiWeatherMs"]   | 10000UL;
 
@@ -225,8 +218,6 @@ static bool saveConfig(const AppConfig& in) {
   doc["emtStopId"]     = in.emtStopId;
   doc["emtStopName"]   = in.emtStopName;
   doc["weatherApiKey"] = in.weatherApiKey;
-
-  // NUEVO
   doc["uiBusMs"]       = in.uiBusMs;
   doc["uiWeatherMs"]   = in.uiWeatherMs;
 
@@ -290,7 +281,7 @@ static void drawStartupScreen(const char* msg) {
   u8g2.setFont(u8g2_font_6x10_tf);
   centreText(msg, 18);
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 static void drawSetupScreen() {
@@ -302,7 +293,7 @@ static void drawSetupScreen() {
   centreText("\"Pantalla EMT\"", 28);
   centreText("y abre 192.168.4.1", 40);
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 static void drawNoTimeScreen() {
@@ -312,7 +303,7 @@ static void drawNoTimeScreen() {
   u8g2.setFont(u8g2_font_6x10_tf);
   centreText("Revisa WiFi / NTP", 18);
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 static void drawNeedStopScreen() {
@@ -321,14 +312,12 @@ static void drawNeedStopScreen() {
   centreText("Configurar en web", 0);
   u8g2.setFont(u8g2_font_6x10_tf);
   centreText("Abre:", 18);
-
   centreText("pantalla-emt.local", 30);
   String ip = WiFi.localIP().toString();
   centreText(ip.c_str(), 42);
-
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 static void drawLoadingScreen(const char* msg) {
@@ -340,7 +329,7 @@ static void drawLoadingScreen(const char* msg) {
   if (msg && msg[0] != '\0') centreText(msg, 32);
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 // ---------------------- Reloj ----------------------
@@ -362,11 +351,9 @@ static void drawClock(bool updateRegion) {
   blankArea(SCREEN_WIDTH - w - 2, 0, w + 2, 10);
   u8g2.drawStr(SCREEN_WIDTH - w, 0, sysTime);
 
-  if (updateRegion) {
-    u8g2.updateDisplayArea(0, 0, 32, 2);
-  }
+  if (updateRegion) u8g2.updateDisplayArea(0, 0, 32, 2);
 
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 // ---------------------- Sleep “sencillo” ----------------------
@@ -392,7 +379,7 @@ static void drawSleepingScreen() {
   }
   u8g2.sendBuffer();
   firstLoad = true;
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 // ---------------------- HTTP helpers ----------------------
@@ -409,9 +396,9 @@ static bool httpGetJson(const String& url,
     return false;
   }
 
-  // ✅ Timeouts para evitar bloqueos largos
-  http.setTimeout(8000);
+  // Timeouts anti-bloqueo
   http.setConnectTimeout(4000);
+  http.setTimeout(8000);
 
   if (addHeaders) addHeaders(http);
 
@@ -435,9 +422,8 @@ static bool httpPostJson(const String& url, const String& payload,
     return false;
   }
 
-  // ✅ Timeouts para evitar bloqueos largos
-  http.setTimeout(8000);
   http.setConnectTimeout(4000);
+  http.setTimeout(8000);
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
@@ -459,9 +445,10 @@ static bool emtTokenValid() {
 }
 
 static bool emtLoginBasic(const String& email, const String& password) {
-  esp_task_wdt_reset(); // ✅ opcional: feed antes de operación potencialmente pesada
-  emtLastErrorMsg = "";
+  // Feed WDT antes de operación potencialmente pesada
+  esp_task_wdt_reset();
 
+  emtLastErrorMsg = "";
   const String url = "https://openapi.emtmadrid.es/v1/mobilitylabs/user/login/";
 
   String body;
@@ -492,7 +479,6 @@ static bool emtLoginBasic(const String& email, const String& password) {
   const char* desc = doc["description"] | "";
   String scode = String(code);
 
-  // EMT a veces devuelve "01" con texto tipo "Token extend..." pero trae accessToken válido
   if (!(scode == "00" || scode == "01")) {
     emtLastErrorMsg = String("Login fail ") + scode + " " + desc;
     return false;
@@ -513,7 +499,7 @@ static bool emtLoginBasic(const String& email, const String& password) {
   unsigned long ttlMs = (unsigned long)(tokenSecExpiration - 60) * 1000UL;
   emtTokenExpiresAtMs = millis() + ttlMs;
 
-  lastHealthyTickMs = millis();
+  markHealthy();
   return true;
 }
 
@@ -528,16 +514,22 @@ static void clearBoard() {
   station.location[0] = '\0';
 
   messages.numMessages = 0;
-  for (int i = 0; i < MAXBOARDMESSAGES; i++) {
-    messages.messages[i][0] = '\0';
-  }
+  for (int i = 0; i < MAXBOARDMESSAGES; i++) messages.messages[i][0] = '\0';
 
   for (int i = 0; i < MAXBOARDSERVICES; i++) {
+    station.service[i].sTime[0] = '\0';
     station.service[i].destination[0] = '\0';
     station.service[i].via[0] = '\0';
-    station.service[i].timeToStation = 0;
+    station.service[i].etd[0] = '\0';
+    station.service[i].platform[0] = '\0';
+    station.service[i].isCancelled = false;
+    station.service[i].isDelayed = false;
+    station.service[i].trainLength = 0;
+    station.service[i].classesAvailable = 0;
+    station.service[i].opco[0] = '\0';
     station.service[i].serviceType = BUS;
-    station.service[i].receivedAtMs = 0; // requiere stationData.h parcheado
+    station.service[i].timeToStation = 0;
+    station.service[i].receivedAtMs = 0;
   }
 }
 
@@ -556,7 +548,6 @@ static void setMessage(const String& m) {
 static bool emtFetchStopCoords(const String& stopId, double& outLat, double& outLon) {
   esp_task_wdt_reset();
 
-  // asegurar token
   if (!emtTokenValid()) {
     if (!emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) return false;
   }
@@ -589,7 +580,7 @@ static bool emtFetchStopCoords(const String& stopId, double& outLat, double& out
   outLon = coords[0].as<double>();
   outLat = coords[1].as<double>();
 
-  lastHealthyTickMs = millis();
+  markHealthy();
   return true;
 }
 
@@ -599,13 +590,11 @@ static bool emtFetchArrivalsV1(const String& stopId) {
   emtLastErrorMsg = "";
 
   if (!emtTokenValid()) {
-    bool ok = emtLoginBasic(cfg.emtEmail, cfg.emtPassword);
-    if (!ok) return false;
+    if (!emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) return false;
   }
 
   const String url = "https://openapi.emtmadrid.es/v1/transport/busemtmad/stops/" + stopId + "/arrives/";
 
-  // Body que comprobaste que funciona
   String payload = "{";
   payload += "\"cultureInfo\":\"ES\",";
   payload += "\"stopId\":\"" + stopId + "\",";
@@ -628,7 +617,7 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     return false;
   }
 
-  // Si 401/403 -> relog y reintento 1 vez
+  // Si 401/403 -> relog 1 vez
   if (httpCode == 401 || httpCode == 403) {
     emtAccessToken = "";
     emtTokenExpiresAtMs = 0;
@@ -667,17 +656,15 @@ static bool emtFetchArrivalsV1(const String& stopId) {
   const char* desc = doc["description"] | "";
   String scode = String(code);
 
-  // 00 ok con estimaciones, 01 ok sin estimaciones
   if (scode == "00" || scode == "01") {
     clearBoard();
-
     strncpy(station.location, cfg.emtStopName.c_str(), MAXLOCATIONSIZE - 1);
     station.location[MAXLOCATIONSIZE - 1] = '\0';
 
     JsonArray arr = doc["data"][0]["Arrive"].as<JsonArray>();
     if (arr.isNull() || arr.size() == 0) {
       setMessage("Sin estimaciones");
-      lastHealthyTickMs = millis();
+      markHealthy();
       return true;
     }
 
@@ -705,10 +692,12 @@ static bool emtFetchArrivalsV1(const String& stopId) {
       s.isDelayed = (deviation > 0);
 
       n++;
+      // deja respirar al RTOS en bucles de parseo
+      yield();
     }
 
     station.numServices = n;
-    lastHealthyTickMs = millis();
+    markHealthy();
     return true;
   }
 
@@ -721,16 +710,14 @@ static bool emtFetchArrivalsV1(const String& stopId) {
 static bool getEmtBoard() {
   if (!haveCreds(cfg) || !haveStop(cfg)) return false;
 
-  lastUpdateResult = UPD_NO_RESPONSE;
   bool ok = emtFetchArrivalsV1(cfg.emtStopId);
-
   nextDataUpdate = millis() + DATAUPDATEINTERVAL;
 
   if (ok) {
     lastDataLoadTime = millis();
     dataLoadSuccess++;
     lastUpdateResult = UPD_SUCCESS;
-    lastHealthyTickMs = millis();
+    markHealthy();
     return true;
   } else {
     dataLoadFailure++;
@@ -791,7 +778,7 @@ static bool weatherFetchCurrent(double lat, double lon) {
   weather.lastFetchMs = millis();
   weather.nextFetchMs = millis() + WEATHER_UPDATE_INTERVAL_MS;
 
-  lastHealthyTickMs = millis();
+  markHealthy();
   return true;
 }
 
@@ -812,7 +799,13 @@ static void weatherTick() {
   if (cfg.weatherApiKey.isEmpty()) return;
   if (!haveStop(cfg)) return;
 
+  // 1) coords (desde EMT)
   if (!weather.hasCoords) {
+    if (!haveCreds(cfg)) {
+      weather.lastError = "No EMT creds (coords)";
+      weather.nextFetchMs = millis() + 60000UL;
+      return;
+    }
     double lat = 0.0, lon = 0.0;
     if (!emtFetchStopCoords(cfg.emtStopId, lat, lon)) {
       weather.lastError = "No coords from EMT";
@@ -826,6 +819,7 @@ static void weatherTick() {
     weather.nextFetchMs = 0;
   }
 
+  // 2) weather fetch
   if (millis() < weather.nextFetchMs) return;
   (void)weatherFetchCurrent(weather.lat, weather.lon);
 }
@@ -837,42 +831,36 @@ static const unsigned char icon_sun_16[] PROGMEM = {
   0x80,0x01,0x2c,0x1a,0x2c,0x1a,0x80,0x01,
   0x00,0x00,0x10,0x08,0x10,0x08,0x00,0x00
 };
-
 static const unsigned char icon_cloud_16[] PROGMEM = {
   0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x01,
   0xc0,0x03,0xe0,0x07,0xf0,0x0f,0xf8,0x1f,
   0xfc,0x3f,0xfe,0x7f,0xfe,0x7f,0xfc,0x3f,
   0xf8,0x1f,0xf0,0x0f,0x00,0x00,0x00,0x00
 };
-
 static const unsigned char icon_partly_16[] PROGMEM = {
   0x00,0x00,0x10,0x08,0x10,0x08,0x00,0x00,
   0x80,0x01,0x2c,0x1a,0x2c,0x1a,0x80,0x01,
   0x80,0x01,0x2c,0x1a,0x2c,0x1a,0x80,0x01,
   0x00,0x00,0x00,0x00,0xe0,0x07,0xf0,0x0f
 };
-
 static const unsigned char icon_rain_16[] PROGMEM = {
   0x00,0x00,0x80,0x01,0xc0,0x03,0xe0,0x07,
   0xf0,0x0f,0xf8,0x1f,0xfc,0x3f,0xfe,0x7f,
   0xfe,0x7f,0xfc,0x3f,0x98,0x19,0x24,0x24,
   0x48,0x12,0x90,0x09,0x00,0x00,0x00,0x00
 };
-
 static const unsigned char icon_storm_16[] PROGMEM = {
   0x00,0x00,0x80,0x01,0xc0,0x03,0xe0,0x07,
   0xf0,0x0f,0xf8,0x1f,0xfc,0x3f,0xfe,0x7f,
   0x3e,0x7c,0x0c,0x30,0x18,0x18,0x30,0x0c,
   0x60,0x06,0x30,0x0c,0x00,0x00,0x00,0x00
 };
-
 static const unsigned char icon_snow_16[] PROGMEM = {
   0x00,0x00,0x10,0x08,0x92,0x49,0x54,0x2a,
   0x38,0x1c,0x7c,0x3e,0x38,0x1c,0x54,0x2a,
   0x92,0x49,0x10,0x08,0x00,0x00,0x10,0x08,
   0x92,0x49,0x54,0x2a,0x00,0x00,0x00,0x00
 };
-
 static const unsigned char icon_fog_16[] PROGMEM = {
   0x00,0x00,0xfe,0x7f,0x00,0x00,0xfc,0x3f,
   0x00,0x00,0xf8,0x1f,0x00,0x00,0xfc,0x3f,
@@ -900,9 +888,7 @@ static void drawEmtLine(int idx, int y) {
   blankArea(0, y, SCREEN_WIDTH, 12);
 
   if (idx >= station.numServices) {
-    if (messages.numMessages > 0 && idx == 0) {
-      centreText(messages.messages[0], y);
-    }
+    if (messages.numMessages > 0 && idx == 0) centreText(messages.messages[0], y);
     return;
   }
 
@@ -911,7 +897,6 @@ static void drawEmtLine(int idx, int y) {
   char left[96];
   const char* line = svc.via;
   const char* dest = svc.destination;
-
   if (line && line[0] != '\0') snprintf(left, sizeof(left), "%d  %s %s", idx + 1, line, dest);
   else snprintf(left, sizeof(left), "%d  %s", idx + 1, dest);
 
@@ -951,23 +936,23 @@ static void drawEmtBoard() {
 
   drawClock(false);
 
+  u8g2.setFont(u8g2_font_6x10_tf);
+
   if (!haveStop(cfg)) {
-    u8g2.setFont(u8g2_font_6x10_tf);
     centreText("Falta StopId", 28);
     centreText("Configura en web (/)", 40);
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    lastHealthyTickMs = millis();
+    markHealthy();
     return;
   }
 
   if (!haveCreds(cfg)) {
-    u8g2.setFont(u8g2_font_6x10_tf);
     centreText("Faltan credenciales EMT", 28);
     centreText("Configura en web (/)", 40);
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    lastHealthyTickMs = millis();
+    markHealthy();
     return;
   }
 
@@ -977,10 +962,10 @@ static void drawEmtBoard() {
 
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
-// ---------------------- Dibujo Weather (layout pedido) ----------------------
+// ---------------------- Dibujo Weather ----------------------
 static void drawWeatherScreen() {
   u8g2.clearBuffer();
   u8g2.setContrast(brightness);
@@ -996,7 +981,7 @@ static void drawWeatherScreen() {
     centreText("Configura en web (/)", 34);
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    lastHealthyTickMs = millis();
+    markHealthy();
     return;
   }
 
@@ -1009,7 +994,7 @@ static void drawWeatherScreen() {
     }
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    lastHealthyTickMs = millis();
+    markHealthy();
     return;
   }
 
@@ -1049,7 +1034,7 @@ static void drawWeatherScreen() {
 
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
 // ---------------------- Web helpers ----------------------
@@ -1067,9 +1052,7 @@ static String htmlHeader(const char* title) {
   return s;
 }
 
-static String htmlFooter() {
-  return "</body></html>";
-}
+static String htmlFooter() { return "</body></html>"; }
 
 static void updateMyMdns(const char* hostname) {
   if (MDNS.begin(hostname)) {
@@ -1121,7 +1104,6 @@ static void handleInfo() {
   if (messages.numMessages) msg += "Message: " + String(messages.messages[0]) + "\n";
   if (!emtLastErrorMsg.isEmpty()) msg += "EMT Error: " + emtLastErrorMsg + "\n";
 
-  // Watchdogs
   msg += "WDT timeout (s): " + String(WDT_TIMEOUT_S) + "\n";
   msg += "SoftWDT (ms): " + String(SOFT_WDT_MS) + "\n";
   msg += "Last healthy (ms ago): " + String((lastHealthyTickMs == 0) ? -1 : (long)(millis() - lastHealthyTickMs)) + "\n";
@@ -1180,7 +1162,6 @@ static void handleConfigGet() {
   s += "<label>Brillo (1-255)</label><br>";
   s += "<input name='brightness' value='" + String(brightness) + "' style='width:100%;padding:8px'><br><br>";
 
-  // NUEVO: duraciones
   s += "<hr><h3>Duracion pantallas</h3>";
   s += "<label>Buses (segundos)</label><br>";
   s += "<input name='busSecs' value='" + String(cfg.uiBusMs / 1000UL) + "' style='width:100%;padding:8px'><br><br>";
@@ -1273,11 +1254,10 @@ static void handleConfigPost() {
     }
   }
 
-  // NUEVO: duraciones UI (en segundos desde el formulario)
   if (server.hasArg("busSecs")) {
     int v = server.arg("busSecs").toInt();
-    if (v < 5) v = 5;        // mínimo 5s
-    if (v > 300) v = 300;    // máximo 5 min
+    if (v < 5) v = 5;
+    if (v > 300) v = 300;
     uint32_t ms = (uint32_t)v * 1000UL;
     if (ms != cfg.uiBusMs) {
       cfg.uiBusMs = ms;
@@ -1289,8 +1269,8 @@ static void handleConfigPost() {
 
   if (server.hasArg("weatherSecs")) {
     int v = server.arg("weatherSecs").toInt();
-    if (v < 3) v = 3;        // mínimo 3s
-    if (v > 120) v = 120;    // máximo 2 min
+    if (v < 3) v = 3;
+    if (v > 120) v = 120;
     uint32_t ms = (uint32_t)v * 1000UL;
     if (ms != cfg.uiWeatherMs) {
       cfg.uiWeatherMs = ms;
@@ -1300,30 +1280,23 @@ static void handleConfigPost() {
     }
   }
 
-  if (stopChanged) {
-    weatherResetOnStopChange();
-  }
-
+  if (stopChanged) weatherResetOnStopChange();
   if (changed) saveConfig(cfg);
 
-  if (!haveStop(cfg)) appState = ST_NEED_STOP;
-  else appState = ST_RUNNING;
+  appState = haveStop(cfg) ? ST_RUNNING : ST_NEED_STOP;
 
-  // Aplica timing “en caliente”
-  if (uiChanged) {
-    uiScheduleNext();
-  }
+  if (uiChanged) uiScheduleNext();
 
-  if (needRefreshNow && wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg)) {
+  if (needRefreshNow) {
     drawLoadingScreen("Actualizando...");
-    (void)getEmtBoard();
+    if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg)) {
+      (void)getEmtBoard();
+    }
     weatherTick();
-    if (uiScreen == UI_BUS) drawEmtBoard();
-    else drawWeatherScreen();
-  } else {
-    if (uiScreen == UI_BUS) drawEmtBoard();
-    else drawWeatherScreen();
   }
+
+  if (uiScreen == UI_BUS) drawEmtBoard();
+  else drawWeatherScreen();
 
   String s = htmlHeader("OK");
   s += "<h2>Guardado</h2>";
@@ -1332,14 +1305,12 @@ static void handleConfigPost() {
   s += htmlFooter();
   server.send(200, contentTypeHtml, s);
 
-  lastHealthyTickMs = millis();
+  markHealthy();
 }
 
-static void handleRoot() {
-  handleConfigGet();
-}
+static void handleRoot() { handleConfigGet(); }
 
-// ---------------------- WiFiManager callbacks ----------------------
+// ---------------------- WiFiManager callback ----------------------
 static void wmConfigModeCallback(WiFiManager* wm) {
   (void)wm;
   drawSetupScreen();
@@ -1347,6 +1318,7 @@ static void wmConfigModeCallback(WiFiManager* wm) {
 
 // ---------------------- Setup / Loop ----------------------
 void setup() {
+  // OLED init
   u8g2.begin();
   u8g2.setContrast(brightness);
   u8g2.setDrawColor(1);
@@ -1361,21 +1333,18 @@ void setup() {
     delay(1500);
   }
 
-  // Carga config
   (void)loadConfig(cfg);
   if (cfg.emtStopName.isEmpty()) cfg.emtStopName = "EMT Madrid";
-
-  // Defaults por si config vieja no tiene campos UI
   if (cfg.uiBusMs == 0) cfg.uiBusMs = 45000UL;
   if (cfg.uiWeatherMs == 0) cfg.uiWeatherMs = 10000UL;
 
-  // Sincroniza variables UI
   UI_BUS_MS = cfg.uiBusMs;
   UI_WEATHER_MS = cfg.uiWeatherMs;
 
   clearBoard();
   weatherResetOnStopChange();
 
+  // WiFi
   drawStartupScreen("Conectando WiFi...");
   WiFi.mode(WIFI_MODE_NULL);
   WiFi.setSleep(WIFI_PS_NONE);
@@ -1395,6 +1364,7 @@ void setup() {
 
   updateMyMdns("pantalla-emt");
 
+  // NTP + TZ España
   configTime(0, 0, ntpServer);
   setenv("TZ", tzSpain, 1);
   tzset();
@@ -1403,21 +1373,20 @@ void setup() {
   while (!getLocalTime(&timeinfo) && tries++ < 12) delay(400);
   if (tries >= 12) drawNoTimeScreen();
 
+  // Routes
   server.on("/", HTTP_GET, handleRoot);
   server.on("/info", HTTP_GET, handleInfo);
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/brightness", HTTP_GET, handleBrightness);
-
   server.on("/config", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
-
   server.begin();
 
-  // ✅ Init Watchdog (vigila loopTask)
+  // Init Task WDT (vigila loopTask)
   esp_task_wdt_config_t twdt_config = {
     .timeout_ms = WDT_TIMEOUT_S * 1000,
-    .idle_core_mask = 0,     // no vigilamos idle tasks
-    .trigger_panic = true    // reset si expira
+    .idle_core_mask = 0,
+    .trigger_panic = true
   };
   esp_task_wdt_init(&twdt_config);
   esp_task_wdt_add(NULL);
@@ -1442,14 +1411,23 @@ void setup() {
     drawEmtBoard();
   }
 
-  lastHealthyTickMs = millis();
+  markHealthy();
+  lastLoopBeatMs = millis();
+  nextWdtFeedMs = millis();
 }
 
 void loop() {
-  // ✅ Feed WDT periódicamente (si loop está vivo)
+  // --- Task WDT feed (si loop está vivo) ---
   if ((long)(millis() - nextWdtFeedMs) >= 0) {
     esp_task_wdt_reset();
     nextWdtFeedMs = millis() + WDT_FEED_PERIOD_MS;
+  }
+
+  // --- Latido mínimo: evita falsos positivos del soft WDT ---
+  if (millis() - lastLoopBeatMs >= LOOP_BEAT_MS) {
+    // Esto indica que el loop sigue corriendo (aunque NTP falle, etc.)
+    lastHealthyTickMs = millis();
+    lastLoopBeatMs = millis();
   }
 
   server.handleClient();
@@ -1459,8 +1437,7 @@ void loop() {
       drawNeedStopScreen();
       timer = millis() + 4000;
     }
-    // Soft heartbeat mientras está en modo setup
-    lastHealthyTickMs = millis();
+    delay(1);
     return;
   }
 
@@ -1470,46 +1447,52 @@ void loop() {
       drawSleepingScreen();
       timer = millis() + 8000;
     }
-    lastHealthyTickMs = millis();
+    delay(1);
     return;
   } else {
     u8g2.setContrast(brightness);
   }
 
+  // Estado WiFi
   if (WiFi.status() != WL_CONNECTED && wifiConnected) {
     wifiConnected = false;
     firstLoad = true;
   } else if (WiFi.status() == WL_CONNECTED && !wifiConnected) {
     wifiConnected = true;
     firstLoad = true;
-    lastHealthyTickMs = millis();
+    markHealthy();
   }
 
+  // Weather tick
   weatherTick();
 
+  // Alternancia de pantallas
   if (millis() > uiNextSwitchMs) {
     uiToggleScreen();
     if (uiScreen == UI_BUS) drawEmtBoard();
     else drawWeatherScreen();
   }
 
+  // EMT update
   if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg) && millis() > nextDataUpdate) {
     (void)getEmtBoard();
     if (uiScreen == UI_BUS) drawEmtBoard();
   }
 
+  // Si faltan credenciales, repinta de vez en cuando
   if (wifiConnected && appState == ST_RUNNING && (!haveCreds(cfg)) && millis() > nextDataUpdate) {
     nextDataUpdate = millis() + DATAUPDATEINTERVAL;
     if (uiScreen == UI_BUS) drawEmtBoard();
   }
 
+  // reloj
   drawClock(true);
 
   long delayMs = 25 - (long)(millis() - refreshTimer);
   if (delayMs > 0) delay((uint32_t)delayMs);
   refreshTimer = millis();
 
-  // ✅ Soft Watchdog: si llevas demasiado sin “latido” útil → reinicia
+  // Soft watchdog (último)
   if (lastHealthyTickMs != 0 && (millis() - lastHealthyTickMs) > SOFT_WDT_MS) {
     ESP.restart();
   }

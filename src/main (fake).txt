@@ -1,0 +1,515 @@
+/*
+ * Pantalla EMT (basado en Departures Board de gadec-uk)
+ * Adaptación: SOLO EMT (sin National Rail ni TfL)
+ *
+ * - Comentarios en español
+ * - Modo único: EMT
+ * - Preparado para funcionar incluso sin hardware (compila igual)
+ *
+ * Requisitos:
+ * - lib/EMTdataClient/EMTdataClient.h
+ * - lib/EMTdataClient/EMTdataClient.cpp
+ *   (por ahora, versión FAKE como te pasé)
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <HTTPClient.h>
+#include <FS.h>
+#include <LittleFS.h>
+#include <ArduinoJson.h>
+#include <WiFiManager.h>
+#include <time.h>
+
+#include <SPI.h>
+#include <U8g2lib.h>
+
+#include <stationData.h>     // Estructuras rdStation / stnMessages
+#include <EMTdataClient.h>   // Nuestro cliente EMT (FAKE por ahora)
+
+// ---------------------- Versión ----------------------
+#define VERSION_MAJOR 0
+#define VERSION_MINOR 1
+
+// ---------------------- Pantalla / OLED ----------------------
+#define SCREEN_WIDTH 256
+#define SCREEN_HEIGHT 64
+#define DIMMED_BRIGHTNESS 1
+
+// OLED SSD1322 256x64 (como el proyecto original)
+U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(
+  U8G2_R0,
+  /* cs=*/ 26,
+  /* dc=*/ 5,
+  /* reset=*/ U8X8_PIN_NONE
+);
+
+// ---------------------- WebServer ----------------------
+WebServer server(80);
+static const char contentTypeJson[] PROGMEM = "application/json";
+static const char contentTypeText[] PROGMEM = "text/plain";
+static const char contentTypeHtml[] PROGMEM = "text/html";
+
+// ---------------------- Tiempo / NTP ----------------------
+static const char ntpServer[] PROGMEM = "europe.pool.ntp.org";
+static struct tm timeinfo;
+char displayedTime[16] = "";
+
+// Timezone España (CET/CEST)
+// Nota: Esto es lo que querías: quitar UK y poner España
+static const char tzSpain[] PROGMEM = "CET-1CEST,M3.5.0/2,M10.5.0/3";
+
+// ---------------------- Configuración EMT ----------------------
+// (Puedes exponer esto luego en config.json / Web GUI)
+String emtStopId = "STOP_FAKE";  // identificador de parada EMT (placeholder)
+String emtApiKey = "";           // API key EMT (si usas modo real más adelante)
+String emtStopName = "EMT Madrid"; // nombre en pantalla (placeholder)
+
+// ---------------------- Estado del sistema ----------------------
+bool wifiConnected = false;
+bool firstLoad = true;
+bool sleepEnabled = false;
+bool isSleeping = false;
+uint8_t sleepStarts = 0;  // por defecto desactivado (sleepEnabled=false)
+uint8_t sleepEnds = 6;
+int brightness = 80;
+
+unsigned long nextClockUpdate = 0;
+unsigned long nextDataUpdate  = 0;
+unsigned long timer = 0;
+unsigned long refreshTimer = 0;
+
+#define DATAUPDATEINTERVAL 30000   // cada 30s (EMT suele ser frecuente)
+#define CLOCKUPDATEINTERVAL 500    // refresco reloj cada 500ms
+
+// ---------------------- Datos “board” ----------------------
+rdStation station;    // reutilizamos estructuras del proyecto original
+stnMessages messages; // mensajes tipo “Powered by…”
+EMTdataClient* emt = nullptr;
+
+int lastUpdateResult = 0;
+unsigned long lastDataLoadTime = 0;
+int dataLoadSuccess = 0;
+int dataLoadFailure = 0;
+
+// ---------------------- Utilidades de dibujo ----------------------
+static inline void blankArea(int x, int y, int w, int h) {
+  u8g2.setDrawColor(0);
+  u8g2.drawBox(x, y, w, h);
+  u8g2.setDrawColor(1);
+}
+
+static inline int getStringWidth(const char* msg) {
+  return u8g2.getStrWidth(msg);
+}
+
+static void drawTruncatedText(const char* message, int x, int y, int maxWidth) {
+  char buff[96];
+  strncpy(buff, message, sizeof(buff));
+  buff[sizeof(buff)-1] = '\0';
+
+  int i = strlen(buff);
+  while (u8g2.getStrWidth(buff) > maxWidth && i > 0) {
+    buff[--i] = '\0';
+  }
+  if (i > 0) strncat(buff, "...", sizeof(buff) - strlen(buff) - 1);
+  u8g2.drawStr(x, y, buff);
+}
+
+static void centreText(const char* message, int y) {
+  int w = u8g2.getStrWidth(message);
+  int x = (w <= SCREEN_WIDTH) ? (SCREEN_WIDTH - w) / 2 : 0;
+  if (w <= SCREEN_WIDTH) u8g2.drawStr(x, y, message);
+  else drawTruncatedText(message, 0, y, SCREEN_WIDTH);
+}
+
+static void drawStatusBarIcons() {
+  // Pequeño indicador WiFi (muy simple)
+  u8g2.setFont(u8g2_font_6x10_tf);
+  if (wifiConnected) {
+    u8g2.drawStr(0, 63, "WiFi");
+  } else {
+    u8g2.drawStr(0, 63, "NO");
+  }
+}
+
+// ---------------------- Pantallas básicas ----------------------
+static void drawStartupScreen(const char* msg) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText("Pantalla EMT", 0);
+  u8g2.setFont(u8g2_font_6x10_tf);
+  centreText(msg, 18);
+  u8g2.sendBuffer();
+}
+
+static void drawSetupScreen() {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText("Configurar WiFi", 0);
+  u8g2.setFont(u8g2_font_6x10_tf);
+  centreText("Conecta a la red:", 16);
+  centreText("\"Pantalla EMT\"", 28);
+  centreText("y abre 192.168.4.1", 40);
+  u8g2.sendBuffer();
+}
+
+static void drawNoTimeScreen() {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText("Sin hora NTP", 0);
+  u8g2.setFont(u8g2_font_6x10_tf);
+  centreText("Revisa WiFi / NTP", 18);
+  u8g2.sendBuffer();
+}
+
+// ---------------------- Reloj ----------------------
+static void drawClock(bool updateRegion) {
+  if (millis() < nextClockUpdate) return;
+  nextClockUpdate = millis() + CLOCKUPDATEINTERVAL;
+
+  if (!getLocalTime(&timeinfo)) return;
+
+  char sysTime[16];
+  snprintf(sysTime, sizeof(sysTime), "%02d:%02d:%02d",
+           timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+
+  if (strcmp(displayedTime, sysTime) == 0) return;
+  strcpy(displayedTime, sysTime);
+
+  // Dibujamos reloj arriba a la derecha
+  u8g2.setFont(u8g2_font_6x10_tf);
+
+  int w = u8g2.getStrWidth(sysTime);
+  blankArea(SCREEN_WIDTH - w - 2, 0, w + 2, 10);
+  u8g2.drawStr(SCREEN_WIDTH - w, 0, sysTime);
+
+  if (updateRegion) {
+    // Zona aproximada; si tu panel no refresca bien, cambia a sendBuffer()
+    u8g2.updateDisplayArea(0, 0, 32, 2);
+  }
+}
+
+// ---------------------- Sleep “sencillo” ----------------------
+static bool isSnoozing() {
+  if (!sleepEnabled) return false;
+  if (!getLocalTime(&timeinfo)) return false;
+  uint8_t h = timeinfo.tm_hour;
+
+  if (sleepStarts > sleepEnds) {
+    return (h >= sleepStarts) || (h < sleepEnds);
+  } else {
+    return (h >= sleepStarts) && (h < sleepEnds);
+  }
+}
+
+static void drawSleepingScreen() {
+  u8g2.setContrast(DIMMED_BRIGHTNESS);
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+
+  if (getLocalTime(&timeinfo)) {
+    char t[8];
+    snprintf(t, sizeof(t), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+    centreText(t, 24);
+  } else {
+    centreText("Sleep", 24);
+  }
+
+  u8g2.sendBuffer();
+  firstLoad = true;
+}
+
+// ---------------------- Lógica EMT ----------------------
+static void emtCallback() {
+  // Si en el futuro el update hace parsing “lento”, aquí puedes mantener el reloj vivo.
+  drawClock(false);
+}
+
+static bool getEmtBoard() {
+  if (!emt) return false;
+  lastUpdateResult = emt->updateArrivals(&station, &messages, emtStopId, emtApiKey, &emtCallback);
+
+  nextDataUpdate = millis() + DATAUPDATEINTERVAL;
+
+  if (lastUpdateResult == UPD_SUCCESS || lastUpdateResult == UPD_NO_CHANGE) {
+    lastDataLoadTime = millis();
+    dataLoadSuccess++;
+    return true;
+  } else {
+    dataLoadFailure++;
+    return false;
+  }
+}
+
+// Dibuja una línea de bus “n -> destino” + “min”
+static void drawEmtLine(int idx, int y) {
+  // Requisitos que estamos asumiendo de stationData:
+  // - station.service[idx].destination (char[])
+  // - station.service[idx].timeToStation (int) en segundos
+  //
+  // Si te falla por nombres, pégame el error de compilación y lo adapto.
+  u8g2.setFont(u8g2_font_6x10_tf);
+  blankArea(0, y, SCREEN_WIDTH, 12);
+
+  if (idx >= station.numServices) {
+    // Si no hay más servicios, mostramos mensaje si existe
+    if (messages.numMessages > 0 && idx == 0) {
+      centreText(messages.messages[0], y);
+    }
+    return;
+  }
+
+  // Izquierda: "1 DESTINO..."
+  char left[64];
+  snprintf(left, sizeof(left), "%d %s", idx + 1, station.service[idx].destination);
+
+  // Derecha: minutos
+  char right[16];
+  int secs = station.service[idx].timeToStation;
+  if (secs <= 60) {
+    strncpy(right, "Due", sizeof(right));
+    right[sizeof(right)-1] = '\0';
+  } else {
+    int mins = (secs + 30) / 60; // redondeo
+    snprintf(right, sizeof(right), "%d min", mins);
+  }
+
+  int wRight = getStringWidth(right);
+  int maxLeftWidth = SCREEN_WIDTH - wRight - 6;
+
+  // Dibujo
+  if (getStringWidth(left) <= maxLeftWidth) {
+    u8g2.drawStr(0, y, left);
+  } else {
+    drawTruncatedText(left, 0, y, maxLeftWidth);
+  }
+  u8g2.drawStr(SCREEN_WIDTH - wRight, y, right);
+}
+
+// Pantalla principal EMT (parada + 3 buses)
+static void drawEmtBoard() {
+  if (firstLoad) {
+    u8g2.clearBuffer();
+    u8g2.setContrast(brightness);
+    firstLoad = false;
+  } else {
+    // limpiamos todo menos para refrescar rápido
+    u8g2.clearBuffer();
+  }
+
+  // Cabecera: nombre parada centrado
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText(emtStopName.c_str(), 0);
+
+  // Reloj (arriba derecha)
+  drawClock(false);
+
+  // Líneas de servicios
+  // Coordenadas “a ojo” para 256x64
+  drawEmtLine(0, 18);
+  drawEmtLine(1, 32);
+  drawEmtLine(2, 46);
+
+  // Estado wifi abajo
+  drawStatusBarIcons();
+
+  u8g2.sendBuffer();
+}
+
+// ---------------------- Web GUI mínima (para depuración) ----------------------
+static void sendResponse(int code, const __FlashStringHelper* msg) {
+  server.send(code, contentTypeText, msg);
+}
+static void sendResponse(int code, const String& msg) {
+  server.send(code, contentTypeText, msg);
+}
+
+static void handleInfo() {
+  unsigned long uptime = millis();
+  char sysUptime[64];
+  int days = uptime / 86400000UL;
+  int hours = (uptime % 86400000UL) / 3600000UL;
+  int minutes = ((uptime % 86400000UL) % 3600000UL) / 60000UL;
+  snprintf(sysUptime, sizeof(sysUptime), "%d days, %d hrs, %d min", days, hours, minutes);
+
+  String msg;
+  msg += "Pantalla EMT\n";
+  msg += "Firmware: v" + String(VERSION_MAJOR) + "." + String(VERSION_MINOR) + "\n";
+  msg += "Uptime: " + String(sysUptime) + "\n";
+  msg += "WiFi: " + String(WiFi.SSID()) + "\n";
+  msg += "IP: " + WiFi.localIP().toString() + "\n";
+  msg += "RSSI: " + String(WiFi.RSSI()) + " dB\n";
+  msg += "StopName: " + emtStopName + "\n";
+  msg += "StopId: " + emtStopId + "\n";
+  msg += "Success: " + String(dataLoadSuccess) + "\n";
+  msg += "Failures: " + String(dataLoadFailure) + "\n";
+  msg += "Services: " + String(station.numServices) + "\n";
+  if (messages.numMessages) {
+    msg += "Message: " + String(messages.messages[0]) + "\n";
+  }
+  sendResponse(200, msg);
+}
+
+static void handleReboot() {
+  sendResponse(200, F("Reiniciando..."));
+  delay(500);
+  ESP.restart();
+}
+
+static void handleBrightness() {
+  if (!server.hasArg("b")) {
+    sendResponse(400, F("Falta parametro b"));
+    return;
+  }
+  int level = server.arg("b").toInt();
+  if (level < 1 || level > 255) {
+    sendResponse(400, F("b debe estar entre 1 y 255"));
+    return;
+  }
+  brightness = level;
+  u8g2.setContrast(brightness);
+  sendResponse(200, F("OK"));
+}
+
+static void updateMyMdns(const char* hostname) {
+  if (MDNS.begin(hostname)) {
+    MDNS.addService("http", "tcp", 80);
+  }
+}
+
+// Callback de WiFiManager cuando entra en modo portal
+static void wmConfigModeCallback(WiFiManager* wm) {
+  (void)wm;
+  drawSetupScreen();
+}
+
+// ---------------------- Setup / Loop ----------------------
+void setup() {
+  // OLED init
+  u8g2.begin();
+  u8g2.setContrast(brightness);
+  u8g2.setDrawColor(1);
+  u8g2.setFontMode(1);
+  u8g2.setFontRefHeightAll();
+  u8g2.setFontPosTop();
+
+  drawStartupScreen("Inicializando...");
+
+  // LittleFS
+  LittleFS.begin(true);
+
+  // WiFi
+  drawStartupScreen("Conectando WiFi...");
+  WiFi.mode(WIFI_MODE_NULL);
+  WiFi.setSleep(WIFI_PS_NONE);
+  WiFi.mode(WIFI_STA);
+
+  WiFiManager wm;
+  wm.setAPCallback(wmConfigModeCallback);
+  wm.setWiFiAutoReconnect(true);
+  wm.setConnectTimeout(8);
+  wm.setConnectRetries(2);
+
+  bool ok = wm.autoConnect("Pantalla EMT");
+  if (!ok) {
+    ESP.restart();
+  }
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(250);
+  }
+  wifiConnected = true;
+
+  // mDNS
+  updateMyMdns("pantalla-emt");
+
+  // NTP + TZ España
+  configTime(0, 0, ntpServer);
+  setenv("TZ", tzSpain, 1);
+  tzset();
+
+  // Esperar NTP (hasta 10 intentos)
+  int tries = 0;
+  while (!getLocalTime(&timeinfo) && tries++ < 10) {
+    delay(500);
+  }
+  if (tries >= 10) {
+    drawNoTimeScreen();
+    // seguimos igualmente; cuando haya NTP, se actualizará
+  }
+
+  // Crear cliente EMT
+  emt = new EMTdataClient();
+
+  // Inicializar estructuras
+  station.numServices = 0;
+  messages.numMessages = 0;
+
+  // Web server mínimo (depuración)
+  server.on("/", []() {
+    server.send(200, contentTypeHtml,
+      "<html><body>"
+      "<h2>Pantalla EMT</h2>"
+      "<p><a href='/info'>/info</a></p>"
+      "<p><a href='/reboot'>/reboot</a></p>"
+      "<p>Brillo: /brightness?b=120</p>"
+      "</body></html>"
+    );
+  });
+  server.on("/info", handleInfo);
+  server.on("/reboot", handleReboot);
+  server.on("/brightness", handleBrightness);
+
+  server.begin();
+
+  // Primera actualización de datos ASAP
+  nextDataUpdate = 0;
+  nextClockUpdate = 0;
+
+  drawStartupScreen("Listo");
+  delay(500);
+}
+
+void loop() {
+  server.handleClient();
+
+  // Sleep (si lo activas en el futuro)
+  isSleeping = isSnoozing();
+  if (isSleeping) {
+    if (millis() > timer) {
+      drawSleepingScreen();
+      timer = millis() + 8000;
+    }
+    return;
+  } else {
+    u8g2.setContrast(brightness);
+  }
+
+  // Control WiFi básico
+  if (WiFi.status() != WL_CONNECTED && wifiConnected) {
+    wifiConnected = false;
+    firstLoad = true;
+  } else if (WiFi.status() == WL_CONNECTED && !wifiConnected) {
+    wifiConnected = true;
+    firstLoad = true;
+  }
+
+  // Actualización de datos EMT
+  if (wifiConnected && millis() > nextDataUpdate) {
+    (void)getEmtBoard();  // si falla, igual dibujamos lo último
+    drawEmtBoard();
+  }
+
+  // Reloj (si no hay data update, refrescamos igualmente el reloj)
+  drawClock(true);
+
+  // Refresco suave para no saturar CPU
+  long delayMs = 25 - (long)(millis() - refreshTimer);
+  if (delayMs > 0) delay((uint32_t)delayMs);
+  refreshTimer = millis();
+}
+

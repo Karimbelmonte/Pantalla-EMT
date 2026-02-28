@@ -1,5 +1,5 @@
 /*
- * Pantalla EMT (EMT + Weather) + Watchdogs robustos
+ * Pantalla EMT (EMT + Weather) + Watchdogs robustos + Deep Sleep configurable
  *
  * Flujo:
  *  1) WiFiManager SOLO para credenciales WiFi.
@@ -8,16 +8,22 @@
  *     - EMT Email/Password (MobilityLabs Basic)
  *     - OpenWeather API key
  *     - Duración pantalla BUS (s) y WEATHER (s)
+ *     - Sleep: enable, startHour, endHour, modo (soft / deep)
  *
  * Persistencia en LittleFS: /config.json
  *
  * Watchdogs:
  *  - Task WDT (ESP32) para colgados reales del loopTask.
  *  - Soft WDT (lógico) para estados "zombie" prolongados.
+ *
+ * Deep Sleep:
+ *  - En ventana de sleep, calcula segundos hasta la hora de fin (endHour:00)
+ *    usando la hora local (NTP+TZ) y programa esp_sleep_enable_timer_wakeup().
+ *  - Si no hay hora válida (NTP), NO entra en deep sleep (fallback a sleep suave).
  */
 
 #include <Arduino.h>
-#include <functional>          // <-- IMPORTANTE para std::function
+#include <functional>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
@@ -36,22 +42,22 @@
 
 // Watchdog (ESP32 Task WDT)
 #include "esp_task_wdt.h"
+// Deep sleep
+#include "esp_sleep.h"
 
 // ---------------------- Versión ----------------------
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 9
+#define VERSION_MINOR 10
 
 // ---------------------- Watchdogs ----------------------
-// Task WDT: si el loopTask se bloquea (no "alimenta" el WDT) -> reset/panic
 static const int WDT_TIMEOUT_S = 15;
 static unsigned long nextWdtFeedMs = 0;
 static const unsigned long WDT_FEED_PERIOD_MS = 250;
 
-// Soft watchdog: si no hay "progreso" durante X -> reinicia (pero con latido mínimo para evitar falsos)
 static unsigned long lastHealthyTickMs = 0;
 static const unsigned long SOFT_WDT_MS = 5UL * 60UL * 1000UL; // 5 min
-static unsigned long lastLoopBeatMs = 0;                      // latido mínimo del loop
-static const unsigned long LOOP_BEAT_MS = 1000;              // 1s
+static unsigned long lastLoopBeatMs = 0;
+static const unsigned long LOOP_BEAT_MS = 1000;
 
 // ---------------------- Pantalla / OLED ----------------------
 #define SCREEN_WIDTH 256
@@ -74,8 +80,6 @@ static const char contentTypeHtml[] PROGMEM = "text/html";
 static const char ntpServer[] PROGMEM = "europe.pool.ntp.org";
 static struct tm timeinfo;
 char displayedTime[16] = "";
-
-// Timezone España (CET/CEST)
 static const char tzSpain[] PROGMEM = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 
 // ---------------------- Config persistente ----------------------
@@ -96,6 +100,12 @@ struct AppConfig {
   // Duraciones UI
   uint32_t uiBusMs;
   uint32_t uiWeatherMs;
+
+  // Sleep
+  bool sleepEnabled;
+  bool sleepDeep;        // true = deep sleep, false = sleep suave (pantalla dim, sigue vivo)
+  uint8_t sleepStarts;   // 0..23
+  uint8_t sleepEnds;     // 0..23
 };
 
 AppConfig cfg;
@@ -110,11 +120,6 @@ AppState appState = ST_BOOT;
 
 bool wifiConnected = false;
 bool firstLoad = true;
-
-bool sleepEnabled = false;
-bool isSleeping = false;
-uint8_t sleepStarts = 0;
-uint8_t sleepEnds = 6;
 
 int brightness = 80;
 
@@ -160,10 +165,8 @@ struct WeatherState {
 
   String lastError = "";
 };
-
 static WeatherState weather;
-
-#define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL) // 10 min
+#define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL)
 
 // ---------------------- UI alternancia ----------------------
 enum UiScreen : uint8_t { UI_BUS = 0, UI_WEATHER = 1 };
@@ -193,7 +196,7 @@ static bool loadConfig(AppConfig& out) {
   File f = LittleFS.open(CFG_PATH, "r");
   if (!f) return false;
 
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<1408> doc; // un poco más por nuevos campos
   DeserializationError err = deserializeJson(doc, f);
   f.close();
   if (err) return false;
@@ -207,11 +210,20 @@ static bool loadConfig(AppConfig& out) {
   out.uiBusMs       = doc["uiBusMs"]       | 45000UL;
   out.uiWeatherMs   = doc["uiWeatherMs"]   | 10000UL;
 
+  out.sleepEnabled  = doc["sleepEnabled"]  | false;
+  out.sleepDeep     = doc["sleepDeep"]     | false;
+  out.sleepStarts   = doc["sleepStarts"]   | 0;
+  out.sleepEnds     = doc["sleepEnds"]     | 6;
+
+  // sane defaults
+  if (out.sleepStarts > 23) out.sleepStarts = 0;
+  if (out.sleepEnds > 23) out.sleepEnds = 6;
+
   return true;
 }
 
 static bool saveConfig(const AppConfig& in) {
-  StaticJsonDocument<1024> doc;
+  StaticJsonDocument<1408> doc;
 
   doc["emtEmail"]      = in.emtEmail;
   doc["emtPassword"]   = in.emtPassword;
@@ -220,6 +232,11 @@ static bool saveConfig(const AppConfig& in) {
   doc["weatherApiKey"] = in.weatherApiKey;
   doc["uiBusMs"]       = in.uiBusMs;
   doc["uiWeatherMs"]   = in.uiWeatherMs;
+
+  doc["sleepEnabled"]  = in.sleepEnabled;
+  doc["sleepDeep"]     = in.sleepDeep;
+  doc["sleepStarts"]   = in.sleepStarts;
+  doc["sleepEnds"]     = in.sleepEnds;
 
   File f = LittleFS.open(CFG_PATH, "w");
   if (!f) return false;
@@ -356,20 +373,29 @@ static void drawClock(bool updateRegion) {
   markHealthy();
 }
 
-// ---------------------- Sleep “sencillo” ----------------------
-static bool isSnoozing() {
-  if (!sleepEnabled) return false;
-  if (!getLocalTime(&timeinfo)) return false;
-  uint8_t h = timeinfo.tm_hour;
-
-  if (sleepStarts > sleepEnds) return (h >= sleepStarts) || (h < sleepEnds);
-  return (h >= sleepStarts) && (h < sleepEnds);
+// ---------------------- Sleep helpers ----------------------
+static bool isInSleepWindow(uint8_t h, uint8_t startH, uint8_t endH) {
+  if (startH == endH) return true; // 24h sleep (edge)
+  if (startH > endH) {
+    // cruza medianoche (ej 23->06)
+    return (h >= startH) || (h < endH);
+  }
+  // mismo día (ej 01->06)
+  return (h >= startH) && (h < endH);
 }
 
-static void drawSleepingScreen() {
+static bool isSnoozing() {
+  if (!cfg.sleepEnabled) return false;
+  if (!getLocalTime(&timeinfo)) return false;
+  uint8_t h = (uint8_t)timeinfo.tm_hour;
+  return isInSleepWindow(h, cfg.sleepStarts, cfg.sleepEnds);
+}
+
+static void drawSleepingScreenSoft() {
   u8g2.setContrast(DIMMED_BRIGHTNESS);
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
+
   if (getLocalTime(&timeinfo)) {
     char t[8];
     snprintf(t, sizeof(t), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
@@ -377,9 +403,82 @@ static void drawSleepingScreen() {
   } else {
     centreText("Sleep", 24);
   }
+
+  u8g2.setFont(u8g2_font_6x10_tf);
+  centreText("Modo sleep", 44);
+
   u8g2.sendBuffer();
   firstLoad = true;
   markHealthy();
+}
+
+static bool computeSecondsUntilWake(uint32_t& outSeconds) {
+  // Necesitamos hora válida
+  if (!getLocalTime(&timeinfo)) return false;
+
+  // "now" local
+  struct tm nowTm = timeinfo;
+  time_t nowT = mktime(&nowTm);
+  if (nowT == (time_t)-1) return false;
+
+  // wake = hoy a cfg.sleepEnds:00:05 (5s margen)
+  struct tm wakeTm = nowTm;
+  wakeTm.tm_hour = cfg.sleepEnds;
+  wakeTm.tm_min = 0;
+  wakeTm.tm_sec = 5;
+
+  time_t wakeT = mktime(&wakeTm);
+  if (wakeT == (time_t)-1) return false;
+
+  // Si ya hemos pasado esa hora, mover a mañana
+  if (difftime(wakeT, nowT) <= 0) {
+    wakeTm.tm_mday += 1;
+    wakeT = mktime(&wakeTm);
+    if (wakeT == (time_t)-1) return false;
+  }
+
+  double diff = difftime(wakeT, nowT);
+  if (diff < 10) diff = 10; // mínimo
+  if (diff > (double)(7UL * 24UL * 3600UL)) diff = (double)(7UL * 24UL * 3600UL); // cap 7 días
+
+  outSeconds = (uint32_t)diff;
+  return true;
+}
+
+static void enterDeepSleepUntilWake() {
+  // Pantalla off / dim
+  u8g2.setContrast(DIMMED_BRIGHTNESS);
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText("Deep Sleep", 18);
+  u8g2.setFont(u8g2_font_6x10_tf);
+  centreText("Hasta hora wake", 36);
+  u8g2.sendBuffer();
+
+  uint32_t secs = 0;
+  if (!computeSecondsUntilWake(secs)) {
+    // No tenemos hora -> NO deep sleep (fallback soft)
+    drawNoTimeScreen();
+    return;
+  }
+
+  // Para ahorrar, apagamos WiFi y servidor
+  server.stop();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_MODE_NULL);
+
+  // Desactiva WDT para no tener comportamientos raros en el paso a sleep
+  esp_task_wdt_delete(NULL);
+  esp_task_wdt_deinit();
+
+  // Programar wakeup por timer RTC
+  esp_sleep_enable_timer_wakeup((uint64_t)secs * 1000000ULL);
+
+  // (Opcional) Guarda motivo para debug
+  // esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+
+  // Go
+  esp_deep_sleep_start();
 }
 
 // ---------------------- HTTP helpers ----------------------
@@ -396,7 +495,6 @@ static bool httpGetJson(const String& url,
     return false;
   }
 
-  // Timeouts anti-bloqueo
   http.setConnectTimeout(4000);
   http.setTimeout(8000);
 
@@ -441,11 +539,10 @@ static bool emtTokenValid() {
   if (emtAccessToken.isEmpty()) return false;
   if (emtTokenExpiresAtMs == 0) return false;
   long remaining = (long)emtTokenExpiresAtMs - (long)millis();
-  return remaining > 30000; // margen 30s
+  return remaining > 30000;
 }
 
 static bool emtLoginBasic(const String& email, const String& password) {
-  // Feed WDT antes de operación potencialmente pesada
   esp_task_wdt_reset();
 
   emtLastErrorMsg = "";
@@ -494,7 +591,6 @@ static bool emtLoginBasic(const String& email, const String& password) {
 
   emtAccessToken = String(token);
 
-  // margen: renovamos antes (restamos 60s)
   if (tokenSecExpiration <= 120) tokenSecExpiration = 120;
   unsigned long ttlMs = (unsigned long)(tokenSecExpiration - 60) * 1000UL;
   emtTokenExpiresAtMs = millis() + ttlMs;
@@ -573,7 +669,6 @@ static bool emtFetchStopCoords(const String& stopId, double& outLat, double& out
   const char* code = doc["code"] | "";
   if (String(code) != "00") return false;
 
-  // GeoJSON: coordinates = [lon, lat]
   JsonArray coords = doc["data"][0]["stops"][0]["geometry"]["coordinates"].as<JsonArray>();
   if (coords.isNull() || coords.size() < 2) return false;
 
@@ -617,7 +712,6 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     return false;
   }
 
-  // Si 401/403 -> relog 1 vez
   if (httpCode == 401 || httpCode == 403) {
     emtAccessToken = "";
     emtTokenExpiresAtMs = 0;
@@ -692,7 +786,6 @@ static bool emtFetchArrivalsV1(const String& stopId) {
       s.isDelayed = (deviation > 0);
 
       n++;
-      // deja respirar al RTOS en bucles de parseo
       yield();
     }
 
@@ -706,7 +799,6 @@ static bool emtFetchArrivalsV1(const String& stopId) {
   return false;
 }
 
-// ---------------------- Lógica EMT board ----------------------
 static bool getEmtBoard() {
   if (!haveCreds(cfg) || !haveStop(cfg)) return false;
 
@@ -799,7 +891,6 @@ static void weatherTick() {
   if (cfg.weatherApiKey.isEmpty()) return;
   if (!haveStop(cfg)) return;
 
-  // 1) coords (desde EMT)
   if (!weather.hasCoords) {
     if (!haveCreds(cfg)) {
       weather.lastError = "No EMT creds (coords)";
@@ -819,7 +910,6 @@ static void weatherTick() {
     weather.nextFetchMs = 0;
   }
 
-  // 2) weather fetch
   if (millis() < weather.nextFetchMs) return;
   (void)weatherFetchCurrent(weather.lat, weather.lon);
 }
@@ -1087,16 +1177,25 @@ static void handleInfo() {
   msg += "OpenWeather key set: " + String(cfg.weatherApiKey.isEmpty() ? "NO" : "YES") + "\n";
   msg += "UI BUS ms: " + String(cfg.uiBusMs) + "\n";
   msg += "UI WEATHER ms: " + String(cfg.uiWeatherMs) + "\n";
+
+  msg += "Sleep enabled: " + String(cfg.sleepEnabled ? "YES" : "NO") + "\n";
+  msg += "Sleep mode: " + String(cfg.sleepDeep ? "DEEP" : "SOFT") + "\n";
+  msg += "Sleep window: " + String(cfg.sleepStarts) + " -> " + String(cfg.sleepEnds) + "\n";
+  if (getLocalTime(&timeinfo)) {
+    msg += "Local time: " + String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min) + ":" + String(timeinfo.tm_sec) + "\n";
+    bool inWin = isInSleepWindow((uint8_t)timeinfo.tm_hour, cfg.sleepStarts, cfg.sleepEnds);
+    msg += "In sleep window: " + String(inWin ? "YES" : "NO") + "\n";
+    uint32_t secs = 0;
+    if (inWin && computeSecondsUntilWake(secs)) {
+      msg += "Seconds until wake: " + String(secs) + "\n";
+    }
+  } else {
+    msg += "Local time: (NTP unavailable)\n";
+  }
+
   msg += "Weather coords: " + String(weather.hasCoords ? "YES" : "NO") + "\n";
   if (weather.hasCoords) msg += "Lat: " + String(weather.lat, 6) + " Lon: " + String(weather.lon, 6) + "\n";
   msg += "Weather data: " + String(weather.hasData ? "YES" : "NO") + "\n";
-  if (weather.hasData) {
-    msg += "Desc: " + String(weather.desc) + "\n";
-    msg += "TempC: " + String(weather.tempC) + "\n";
-    msg += "FeelsC: " + String(weather.feelsC) + "\n";
-    msg += "MinC: " + String(weather.minC) + " MaxC: " + String(weather.maxC) + "\n";
-    msg += "Icon: " + String(weather.icon) + "\n";
-  }
   if (!weather.lastError.isEmpty()) msg += "Weather err: " + weather.lastError + "\n";
   msg += "Success: " + String(dataLoadSuccess) + "\n";
   msg += "Failures: " + String(dataLoadFailure) + "\n";
@@ -1130,6 +1229,20 @@ static void handleBrightness() {
   brightness = level;
   u8g2.setContrast(brightness);
   sendResponse(200, "OK");
+}
+
+static void handleSleepNow() {
+  if (!cfg.sleepEnabled) {
+    sendResponse(400, "Sleep no habilitado");
+    return;
+  }
+  if (!cfg.sleepDeep) {
+    sendResponse(200, "SleepNow solo hace deep sleep si sleepDeep=YES. Cambia modo en /config.");
+    return;
+  }
+  sendResponse(200, "Entrando en deep sleep...");
+  delay(200);
+  enterDeepSleepUntilWake();
 }
 
 // -------- Config principal --------
@@ -1168,11 +1281,33 @@ static void handleConfigGet() {
   s += "<label>Tiempo (segundos)</label><br>";
   s += "<input name='weatherSecs' value='" + String(cfg.uiWeatherMs / 1000UL) + "' style='width:100%;padding:8px'><br><br>";
 
+  // Sleep
+  s += "<hr><h3>Sleep</h3>";
+  s += "<label><input type='checkbox' name='sleepEnabled' ";
+  if (cfg.sleepEnabled) s += "checked";
+  s += "> Habilitar sleep</label><br><br>";
+
+  s += "<label>Modo</label><br>";
+  s += "<select name='sleepMode' style='width:100%;padding:8px'>";
+  s += "<option value='soft'";
+  if (!cfg.sleepDeep) s += " selected";
+  s += ">Soft (pantalla tenue, sigue vivo)</option>";
+  s += "<option value='deep'";
+  if (cfg.sleepDeep) s += " selected";
+  s += ">Deep Sleep (apaga y despierta a endHour)</option>";
+  s += "</select><br><br>";
+
+  s += "<label>Sleep starts (0-23)</label><br>";
+  s += "<input name='sleepStarts' value='" + String(cfg.sleepStarts) + "' style='width:100%;padding:8px'><br><br>";
+
+  s += "<label>Sleep ends (0-23)</label><br>";
+  s += "<input name='sleepEnds' value='" + String(cfg.sleepEnds) + "' style='width:100%;padding:8px'><br><br>";
+
   s += "<button type='submit' style='padding:10px 14px;'>Guardar cambios</button>";
   s += "</form>";
 
   s += "<hr>";
-  s += "<p><a href='/info'>/info</a> | <a href='/reboot'>Reiniciar</a></p>";
+  s += "<p><a href='/info'>/info</a> | <a href='/reboot'>Reiniciar</a> | <a href='/sleepnow'>Deep sleep now</a></p>";
   s += htmlFooter();
 
   server.send(200, contentTypeHtml, s);
@@ -1183,6 +1318,7 @@ static void handleConfigPost() {
   bool needRefreshNow = false;
   bool stopChanged = false;
   bool uiChanged = false;
+  bool sleepChanged = false;
 
   if (server.hasArg("stopId")) {
     String newStop = server.arg("stopId");
@@ -1280,6 +1416,47 @@ static void handleConfigPost() {
     }
   }
 
+  // Sleep fields
+  bool newSleepEnabled = server.hasArg("sleepEnabled"); // checkbox
+  if (newSleepEnabled != cfg.sleepEnabled) {
+    cfg.sleepEnabled = newSleepEnabled;
+    changed = true;
+    sleepChanged = true;
+  }
+
+  if (server.hasArg("sleepMode")) {
+    String m = server.arg("sleepMode");
+    m.trim();
+    bool deep = (m == "deep");
+    if (deep != cfg.sleepDeep) {
+      cfg.sleepDeep = deep;
+      changed = true;
+      sleepChanged = true;
+    }
+  }
+
+  if (server.hasArg("sleepStarts")) {
+    int v = server.arg("sleepStarts").toInt();
+    if (v < 0) v = 0;
+    if (v > 23) v = 23;
+    if ((uint8_t)v != cfg.sleepStarts) {
+      cfg.sleepStarts = (uint8_t)v;
+      changed = true;
+      sleepChanged = true;
+    }
+  }
+
+  if (server.hasArg("sleepEnds")) {
+    int v = server.arg("sleepEnds").toInt();
+    if (v < 0) v = 0;
+    if (v > 23) v = 23;
+    if ((uint8_t)v != cfg.sleepEnds) {
+      cfg.sleepEnds = (uint8_t)v;
+      changed = true;
+      sleepChanged = true;
+    }
+  }
+
   if (stopChanged) weatherResetOnStopChange();
   if (changed) saveConfig(cfg);
 
@@ -1301,6 +1478,9 @@ static void handleConfigPost() {
   String s = htmlHeader("OK");
   s += "<h2>Guardado</h2>";
   s += "<p>Cambios aplicados.</p>";
+  if (sleepChanged && cfg.sleepEnabled && cfg.sleepDeep) {
+    s += "<p><b>Nota:</b> Si ahora mismo estas dentro de la ventana de sleep, el dispositivo entrara en deep sleep en pocos segundos.</p>";
+  }
   s += "<p><a href='/'>Volver</a></p>";
   s += htmlFooter();
   server.send(200, contentTypeHtml, s);
@@ -1378,6 +1558,7 @@ void setup() {
   server.on("/info", HTTP_GET, handleInfo);
   server.on("/reboot", HTTP_GET, handleReboot);
   server.on("/brightness", HTTP_GET, handleBrightness);
+  server.on("/sleepnow", HTTP_GET, handleSleepNow);
   server.on("/config", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
   server.begin();
@@ -1417,15 +1598,14 @@ void setup() {
 }
 
 void loop() {
-  // --- Task WDT feed (si loop está vivo) ---
+  // --- Task WDT feed ---
   if ((long)(millis() - nextWdtFeedMs) >= 0) {
     esp_task_wdt_reset();
     nextWdtFeedMs = millis() + WDT_FEED_PERIOD_MS;
   }
 
-  // --- Latido mínimo: evita falsos positivos del soft WDT ---
+  // --- Latido mínimo ---
   if (millis() - lastLoopBeatMs >= LOOP_BEAT_MS) {
-    // Esto indica que el loop sigue corriendo (aunque NTP falle, etc.)
     lastHealthyTickMs = millis();
     lastLoopBeatMs = millis();
   }
@@ -1441,14 +1621,28 @@ void loop() {
     return;
   }
 
-  isSleeping = isSnoozing();
-  if (isSleeping) {
-    if (millis() > timer) {
-      drawSleepingScreen();
-      timer = millis() + 8000;
+  // -------- Sleep logic (soft/deep) --------
+  bool snoozing = isSnoozing();
+  if (snoozing) {
+    if (cfg.sleepDeep) {
+      // Intenta deep sleep solo si tienes hora válida
+      // Nota: si NTP no está OK, computeSecondsUntilWake falla y hacemos fallback soft.
+      enterDeepSleepUntilWake();
+      // Si por algún motivo NO se duerme (fallback), seguimos soft:
+      if (millis() > timer) {
+        drawSleepingScreenSoft();
+        timer = millis() + 8000;
+      }
+      delay(1);
+      return;
+    } else {
+      if (millis() > timer) {
+        drawSleepingScreenSoft();
+        timer = millis() + 8000;
+      }
+      delay(1);
+      return;
     }
-    delay(1);
-    return;
   } else {
     u8g2.setContrast(brightness);
   }
@@ -1466,7 +1660,7 @@ void loop() {
   // Weather tick
   weatherTick();
 
-  // Alternancia de pantallas
+  // Alternancia pantallas
   if (millis() > uiNextSwitchMs) {
     uiToggleScreen();
     if (uiScreen == UI_BUS) drawEmtBoard();

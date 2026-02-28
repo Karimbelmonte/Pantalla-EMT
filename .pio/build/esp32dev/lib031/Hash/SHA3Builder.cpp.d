@@ -1,0 +1,36 @@
+.pio/build/esp32dev/lib031/Hash/SHA3Builder.cpp.o: \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/libraries/Hash/src/SHA3Builder.cpp \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-log.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_timer/include/esp_timer.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/newlib/platform_include/stdio.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_err.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_compiler.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_hw_support/include/esp_etm.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_rom/esp32/include/esp32/rom/ets_sys.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_rom/include/esp_rom_sys.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/soc/esp32/include/soc/reset_reasons.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/soc/esp32/include/soc/soc_caps.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_config.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_level.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_assert.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_color.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_buffer.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_timestamp.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_write.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_format.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_args.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_macros.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_assert.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_log_attr.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_common/include/esp_attr.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/log/include/esp_private/log_attr.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/libraries/Hash/src/SHA3Builder.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/WString.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/pgmspace.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/Stream.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/Print.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/WString.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/Printable.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/HashBuilder.h \
+ /home/karim/.platformio/packages/framework-arduinoespressif32/cores/esp32/HEXBuilder.h

@@ -39,6 +39,8 @@
 #include <U8g2lib.h>
 
 #include <stationData.h>
+#include "globals.h"
+#include "web_server.h"
 
 // Watchdog (ESP32 Task WDT)
 #include "esp_task_wdt.h"
@@ -50,14 +52,14 @@
 #define VERSION_MINOR 10
 
 // ---------------------- Watchdogs ----------------------
-static const int WDT_TIMEOUT_S = 15;
-static unsigned long nextWdtFeedMs = 0;
-static const unsigned long WDT_FEED_PERIOD_MS = 250;
+extern const int WDT_TIMEOUT_S = 15;
+unsigned long nextWdtFeedMs = 0;
+extern const unsigned long WDT_FEED_PERIOD_MS = 250;
 
-static unsigned long lastHealthyTickMs = 0;
-static const unsigned long SOFT_WDT_MS = 5UL * 60UL * 1000UL; // 5 min
-static unsigned long lastLoopBeatMs = 0;
-static const unsigned long LOOP_BEAT_MS = 1000;
+unsigned long lastHealthyTickMs = 0;
+extern const unsigned long SOFT_WDT_MS = 5UL * 60UL * 1000UL; // 5 min
+unsigned long lastLoopBeatMs = 0;
+extern const unsigned long LOOP_BEAT_MS = 1000;
 
 // ---------------------- Pantalla / OLED ----------------------
 #define SCREEN_WIDTH 256
@@ -73,8 +75,8 @@ U8G2_SSD1322_NHD_256X64_F_4W_HW_SPI u8g2(
 
 // ---------------------- WebServer ----------------------
 WebServer server(80);
-static const char contentTypeText[] PROGMEM = "text/plain";
-static const char contentTypeHtml[] PROGMEM = "text/html";
+const char contentTypeText[] PROGMEM = "text/plain";
+const char contentTypeHtml[] PROGMEM = "text/html";
 
 // ---------------------- Tiempo / NTP ----------------------
 static const char ntpServer[] PROGMEM = "europe.pool.ntp.org";
@@ -85,37 +87,10 @@ static const char tzSpain[] PROGMEM = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 // ---------------------- Config persistente ----------------------
 static const char CFG_PATH[] = "/config.json";
 
-struct AppConfig {
-  // MobilityLabs BASIC
-  String emtEmail;
-  String emtPassword;
-
-  // EMT
-  String emtStopId;
-  String emtStopName;
-
-  // OpenWeather
-  String weatherApiKey;
-
-  // Duraciones UI
-  uint32_t uiBusMs;
-  uint32_t uiWeatherMs;
-
-  // Sleep
-  bool sleepEnabled;
-  bool sleepDeep;        // true = deep sleep, false = sleep suave (pantalla dim, sigue vivo)
-  uint8_t sleepStarts;   // 0..23
-  uint8_t sleepEnds;     // 0..23
-};
 
 AppConfig cfg;
 
 // ---------------------- Estado del sistema ----------------------
-enum AppState : uint8_t {
-  ST_BOOT = 0,
-  ST_NEED_STOP,
-  ST_RUNNING
-};
 AppState appState = ST_BOOT;
 
 bool wifiConnected = false;
@@ -141,56 +116,36 @@ int dataLoadSuccess = 0;
 int dataLoadFailure = 0;
 
 // ---------------------- EMT token state ----------------------
-static String emtAccessToken = "";
-static unsigned long emtTokenExpiresAtMs = 0;
-static String emtLastErrorMsg = "";
+String emtAccessToken = "";
+unsigned long emtTokenExpiresAtMs = 0;
+String emtLastErrorMsg = "";
 
 // ---------------------- Weather state ----------------------
-struct WeatherState {
-  bool hasCoords = false;
-  double lat = 0.0;
-  double lon = 0.0;
-
-  bool hasData = false;
-  float tempC = NAN;
-  float feelsC = NAN;
-  float minC = NAN;
-  float maxC = NAN;
-
-  char desc[48] = "";
-  char icon[8] = "";
-
-  unsigned long nextFetchMs = 0;
-  unsigned long lastFetchMs = 0;
-
-  String lastError = "";
-};
-static WeatherState weather;
+WeatherState weather;
 #define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL)
 
 // ---------------------- UI alternancia ----------------------
-enum UiScreen : uint8_t { UI_BUS = 0, UI_WEATHER = 1 };
-static UiScreen uiScreen = UI_BUS;
+UiScreen uiScreen = UI_BUS;
 
-static unsigned long uiNextSwitchMs = 0;
-static uint32_t UI_BUS_MS = 45000UL;
-static uint32_t UI_WEATHER_MS = 10000UL;
+unsigned long uiNextSwitchMs = 0;
+uint32_t UI_BUS_MS = 45000UL;
+uint32_t UI_WEATHER_MS = 10000UL;
 
-static inline void uiScheduleNext() {
+void uiScheduleNext() {
   uiNextSwitchMs = millis() + ((uiScreen == UI_BUS) ? UI_BUS_MS : UI_WEATHER_MS);
 }
-static inline void uiToggleScreen() {
+void uiToggleScreen() {
   uiScreen = (uiScreen == UI_BUS) ? UI_WEATHER : UI_BUS;
   uiScheduleNext();
 }
 
 // ---------------------- Helpers: “salud” ----------------------
-static inline void markHealthy() {
+void markHealthy() {
   lastHealthyTickMs = millis();
 }
 
 // ---------------------- Helpers: FS config ----------------------
-static bool loadConfig(AppConfig& out) {
+bool loadConfig(AppConfig& out) {
   if (!LittleFS.exists(CFG_PATH)) return false;
 
   File f = LittleFS.open(CFG_PATH, "r");
@@ -222,7 +177,7 @@ static bool loadConfig(AppConfig& out) {
   return true;
 }
 
-static bool saveConfig(const AppConfig& in) {
+bool saveConfig(const AppConfig& in) {
   StaticJsonDocument<1408> doc;
 
   doc["emtEmail"]      = in.emtEmail;
@@ -249,10 +204,10 @@ static bool saveConfig(const AppConfig& in) {
   return true;
 }
 
-static inline bool haveCreds(const AppConfig& c) {
+bool haveCreds(const AppConfig& c) {
   return !c.emtEmail.isEmpty() && !c.emtPassword.isEmpty();
 }
-static inline bool haveStop(const AppConfig& c) {
+bool haveStop(const AppConfig& c) {
   return !c.emtStopId.isEmpty();
 }
 
@@ -337,7 +292,7 @@ static void drawNeedStopScreen() {
   markHealthy();
 }
 
-static void drawLoadingScreen(const char* msg) {
+void drawLoadingScreen(const char* msg) {
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
   centreText("Pantalla EMT", 0);
@@ -445,22 +400,17 @@ static bool computeSecondsUntilWake(uint32_t& outSeconds) {
   return true;
 }
 
-static void enterDeepSleepUntilWake() {
-  // Pantalla off / dim
-  u8g2.setContrast(DIMMED_BRIGHTNESS);
-  u8g2.clearBuffer();
-  u8g2.setFont(u8g2_font_6x13_tf);
-  centreText("Deep Sleep", 18);
-  u8g2.setFont(u8g2_font_6x10_tf);
-  centreText("Hasta hora wake", 36);
-  u8g2.sendBuffer();
-
+void enterDeepSleepUntilWake() {
   uint32_t secs = 0;
   if (!computeSecondsUntilWake(secs)) {
     // No tenemos hora -> NO deep sleep (fallback soft)
     drawNoTimeScreen();
     return;
   }
+
+  // Apagar la pantalla OLED del todo (modo ahorro de energía)
+  // En lugar de borrarla y dejarla encendida como antes.
+  u8g2.setPowerSave(1);
 
   // Para ahorrar, apagamos WiFi y servidor
   server.stop();
@@ -482,16 +432,20 @@ static void enterDeepSleepUntilWake() {
 }
 
 // ---------------------- HTTP helpers ----------------------
-static bool httpGetJson(const String& url,
-                        const std::function<void(HTTPClient&)>& addHeaders,
-                        String& outBody, int& outHttpCode) {
-  WiFiClientSecure client;
-  client.setInsecure();
+// 1) Global WiFiClientSecure to allow TLS Session Reuse (saves CPU and time)
+WiFiClientSecure globalSecureClient;
+
+static bool httpGetJsonStream(const String& url,
+                              const std::function<void(HTTPClient&)>& addHeaders,
+                              std::function<void(Stream&)> parseStream,
+                              int& outHttpCode) {
+  // Allow insecure connections but REUSE the session if possible
+  globalSecureClient.setInsecure();
 
   HTTPClient http;
-  if (!http.begin(client, url)) {
+  // Use the global client instead of creating a new one every time
+  if (!http.begin(globalSecureClient, url)) {
     outHttpCode = -1;
-    outBody = "";
     return false;
   }
 
@@ -501,22 +455,26 @@ static bool httpGetJson(const String& url,
   if (addHeaders) addHeaders(http);
 
   outHttpCode = http.GET();
-  outBody = (outHttpCode > 0) ? http.getString() : "";
-  http.end();
-
+  if (outHttpCode > 0) {
+    // Pass the stream directly to the JSON parser (saves heavy RAM usage)
+    parseStream(http.getStream());
+  }
+  
+  // We DO NOT call http.end() or globalSecureClient.stop() here 
+  // so the TLS session can be kept alive for the next request.
+  
   return (outHttpCode > 0);
 }
 
-static bool httpPostJson(const String& url, const String& payload,
-                         const std::function<void(HTTPClient&)>& addHeaders,
-                         String& outBody, int& outHttpCode) {
-  WiFiClientSecure client;
-  client.setInsecure();
+static bool httpPostJsonStream(const String& url, const String& payload,
+                               const std::function<void(HTTPClient&)>& addHeaders,
+                               std::function<void(Stream&)> parseStream,
+                               int& outHttpCode) {
+  globalSecureClient.setInsecure();
 
   HTTPClient http;
-  if (!http.begin(client, url)) {
+  if (!http.begin(globalSecureClient, url)) {
     outHttpCode = -1;
-    outBody = "";
     return false;
   }
 
@@ -528,8 +486,9 @@ static bool httpPostJson(const String& url, const String& payload,
   if (addHeaders) addHeaders(http);
 
   outHttpCode = http.POST(payload);
-  outBody = (outHttpCode > 0) ? http.getString() : "";
-  http.end();
+  if (outHttpCode > 0) {
+    parseStream(http.getStream());
+  }
 
   return (outHttpCode > 0);
 }
@@ -548,16 +507,31 @@ static bool emtLoginBasic(const String& email, const String& password) {
   emtLastErrorMsg = "";
   const String url = "https://openapi.emtmadrid.es/v1/mobilitylabs/user/login/";
 
-  String body;
   int httpCode = 0;
+  bool jsonError = false;
+  String scode, sdesc, stoken;
+  long tokenSecExpiration = 0;
 
-  bool ok = httpGetJson(url,
+  bool ok = httpGetJsonStream(url,
     [&](HTTPClient& http) {
       http.addHeader("email", email);
       http.addHeader("password", password);
       http.addHeader("Accept", "application/json");
     },
-    body, httpCode
+    [&](Stream& stream) {
+      StaticJsonDocument<3072> doc;
+      auto err = deserializeJson(doc, stream);
+      if (err) {
+        jsonError = true;
+        return;
+      }
+      
+      scode = String(doc["code"] | "");
+      sdesc = String(doc["description"] | "");
+      stoken = String(doc["data"][0]["accessToken"] | "");
+      tokenSecExpiration = doc["data"][0]["tokenSecExpiration"] | 0;
+    },
+    httpCode
   );
 
   if (!ok || httpCode < 200 || httpCode >= 300) {
@@ -565,31 +539,22 @@ static bool emtLoginBasic(const String& email, const String& password) {
     return false;
   }
 
-  StaticJsonDocument<3072> doc;
-  auto err = deserializeJson(doc, body);
-  if (err) {
-    emtLastErrorMsg = "Login JSON parse";
+  if (jsonError) {
+    emtLastErrorMsg = "Login JSON parse error";
     return false;
   }
-
-  const char* code = doc["code"] | "";
-  const char* desc = doc["description"] | "";
-  String scode = String(code);
 
   if (!(scode == "00" || scode == "01")) {
-    emtLastErrorMsg = String("Login fail ") + scode + " " + desc;
+    emtLastErrorMsg = "Login fail " + scode + " " + sdesc;
     return false;
   }
 
-  const char* token = doc["data"][0]["accessToken"] | "";
-  long tokenSecExpiration = doc["data"][0]["tokenSecExpiration"] | 0;
-
-  if (!token || token[0] == '\0') {
-    emtLastErrorMsg = String("Login no token ") + scode + " " + desc;
+  if (stoken.isEmpty()) {
+    emtLastErrorMsg = "Login no token " + scode + " " + sdesc;
     return false;
   }
 
-  emtAccessToken = String(token);
+  emtAccessToken = stoken;
 
   if (tokenSecExpiration <= 120) tokenSecExpiration = 120;
   unsigned long ttlMs = (unsigned long)(tokenSecExpiration - 60) * 1000UL;
@@ -600,7 +565,7 @@ static bool emtLoginBasic(const String& email, const String& password) {
 }
 
 // ---------------------- Board reset / messages ----------------------
-static void clearBoard() {
+void clearBoard() {
   station.numServices = 0;
   station.platformAvailable = false;
   station.boardChanged = true;
@@ -650,30 +615,41 @@ static bool emtFetchStopCoords(const String& stopId, double& outLat, double& out
 
   String url = "https://openapi.emtmadrid.es/v1/transport/busemtmad/stops/" + stopId + "/detail/";
 
-  String body;
   int httpCode = 0;
+  bool jsonError = false;
+  String scode;
+  double tmpLon = 0.0, tmpLat = 0.0;
 
-  bool ok = httpGetJson(url,
+  bool ok = httpGetJsonStream(url,
     [&](HTTPClient& http) {
       http.addHeader("accessToken", emtAccessToken);
       http.addHeader("Accept", "application/json");
     },
-    body, httpCode
+    [&](Stream& stream) {
+      StaticJsonDocument<4096> doc;
+      if (deserializeJson(doc, stream)) {
+        jsonError = true;
+        return;
+      }
+      
+      scode = String(doc["code"] | "");
+      if (scode != "00") return;
+
+      JsonArray coords = doc["data"][0]["stops"][0]["geometry"]["coordinates"].as<JsonArray>();
+      if (!coords.isNull() && coords.size() >= 2) {
+        tmpLon = coords[0].as<double>();
+        tmpLat = coords[1].as<double>();
+      }
+    },
+    httpCode
   );
 
-  if (!ok || httpCode < 200 || httpCode >= 300) return false;
+  if (!ok || httpCode < 200 || httpCode >= 300 || jsonError || scode != "00" || tmpLon == 0.0) {
+    return false;
+  }
 
-  StaticJsonDocument<4096> doc;
-  if (deserializeJson(doc, body)) return false;
-
-  const char* code = doc["code"] | "";
-  if (String(code) != "00") return false;
-
-  JsonArray coords = doc["data"][0]["stops"][0]["geometry"]["coordinates"].as<JsonArray>();
-  if (coords.isNull() || coords.size() < 2) return false;
-
-  outLon = coords[0].as<double>();
-  outLat = coords[1].as<double>();
+  outLon = tmpLon;
+  outLat = tmpLat;
 
   markHealthy();
   return true;
@@ -697,14 +673,70 @@ static bool emtFetchArrivalsV1(const String& stopId) {
   payload += "\"Text_EstimationsRequired_YN\":\"Y\"";
   payload += "}";
 
-  String body;
   int httpCode = 0;
+  bool jsonError = false;
+  String scode, sdesc;
+  int servicesFound = -1;
 
-  bool ok = httpPostJson(url, payload,
+  auto parseArrivals = [&](Stream& stream) {
+    StaticJsonDocument<8192> doc;
+    auto err = deserializeJson(doc, stream);
+    if (err) {
+      jsonError = true;
+      return;
+    }
+
+    scode = String(doc["code"] | "");
+    sdesc = String(doc["description"] | "");
+
+    if (scode == "00" || scode == "01") {
+      clearBoard();
+      strncpy(station.location, cfg.emtStopName.c_str(), MAXLOCATIONSIZE - 1);
+      station.location[MAXLOCATIONSIZE - 1] = '\0';
+
+      JsonArray arr = doc["data"][0]["Arrive"].as<JsonArray>();
+      if (arr.isNull() || arr.size() == 0) {
+        servicesFound = 0;
+        return;
+      }
+
+      int n = 0;
+      for (JsonObject a : arr) {
+        if (n >= MAXBOARDSERVICES) break;
+
+        rdService& s = station.service[n];
+
+        const char* line = a["line"] | "";
+        const char* destination = a["destination"] | "";
+        int estimateArrive = a["estimateArrive"] | 0;
+
+        strncpy(s.destination, destination, MAXLOCATIONSIZE - 1);
+        s.destination[MAXLOCATIONSIZE - 1] = '\0';
+
+        strncpy(s.via, line, MAXLOCATIONSIZE - 1);
+        s.via[MAXLOCATIONSIZE - 1] = '\0';
+
+        s.timeToStation = estimateArrive;
+        s.receivedAtMs = millis();
+        s.serviceType = BUS;
+
+        int deviation = a["deviation"] | 0;
+        s.isDelayed = (deviation > 0);
+
+        n++;
+        yield();
+      }
+
+      servicesFound = n;
+    }
+  };
+
+  bool ok = httpPostJsonStream(url, payload,
     [&](HTTPClient& http) {
       http.addHeader("accessToken", emtAccessToken);
     },
-    body, httpCode
+    parseArrivals,
+    httpCode
   );
 
   if (!ok) {
@@ -721,11 +753,12 @@ static bool emtFetchArrivalsV1(const String& stopId) {
       return false;
     }
 
-    ok = httpPostJson(url, payload,
+    ok = httpPostJsonStream(url, payload,
       [&](HTTPClient& http) {
         http.addHeader("accessToken", emtAccessToken);
       },
-      body, httpCode
+      parseArrivals,
+      httpCode
     );
 
     if (!ok || (httpCode < 200 || httpCode >= 300)) {
@@ -739,67 +772,27 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     return false;
   }
 
-  StaticJsonDocument<8192> doc;
-  auto err = deserializeJson(doc, body);
-  if (err) {
+  if (jsonError) {
     emtLastErrorMsg = "Arrivals JSON parse";
     return false;
   }
 
-  const char* code = doc["code"] | "";
-  const char* desc = doc["description"] | "";
-  String scode = String(code);
-
   if (scode == "00" || scode == "01") {
-    clearBoard();
-    strncpy(station.location, cfg.emtStopName.c_str(), MAXLOCATIONSIZE - 1);
-    station.location[MAXLOCATIONSIZE - 1] = '\0';
-
-    JsonArray arr = doc["data"][0]["Arrive"].as<JsonArray>();
-    if (arr.isNull() || arr.size() == 0) {
+    if (servicesFound <= 0) {
       setMessage("Sin estimaciones");
-      markHealthy();
-      return true;
+    } else {
+      station.numServices = servicesFound;
     }
-
-    int n = 0;
-    for (JsonObject a : arr) {
-      if (n >= MAXBOARDSERVICES) break;
-
-      rdService& s = station.service[n];
-
-      const char* line = a["line"] | "";
-      const char* destination = a["destination"] | "";
-      int estimateArrive = a["estimateArrive"] | 0;
-
-      strncpy(s.destination, destination, MAXLOCATIONSIZE - 1);
-      s.destination[MAXLOCATIONSIZE - 1] = '\0';
-
-      strncpy(s.via, line, MAXLOCATIONSIZE - 1);
-      s.via[MAXLOCATIONSIZE - 1] = '\0';
-
-      s.timeToStation = estimateArrive;
-      s.receivedAtMs = millis();
-      s.serviceType = BUS;
-
-      int deviation = a["deviation"] | 0;
-      s.isDelayed = (deviation > 0);
-
-      n++;
-      yield();
-    }
-
-    station.numServices = n;
     markHealthy();
     return true;
   }
 
-  emtLastErrorMsg = "Arrive code " + scode + " " + String(desc);
+  emtLastErrorMsg = "Arrive code " + scode + " " + sdesc;
   setMessage("Error EMT " + scode);
   return false;
 }
 
-static bool getEmtBoard() {
+bool getEmtBoard() {
   if (!haveCreds(cfg) || !haveStop(cfg)) return false;
 
   bool ok = emtFetchArrivalsV1(cfg.emtStopId);
@@ -833,14 +826,33 @@ static bool weatherFetchCurrent(double lat, double lon) {
                "&appid=" + cfg.weatherApiKey +
                "&units=metric&lang=es";
 
-  String body;
   int httpCode = 0;
+  bool jsonError = false;
 
-  bool ok = httpGetJson(url,
+  bool ok = httpGetJsonStream(url,
     [&](HTTPClient& http) {
       http.addHeader("Accept", "application/json");
     },
-    body, httpCode
+    [&](Stream& stream) {
+      StaticJsonDocument<4096> doc;
+      if (deserializeJson(doc, stream)) {
+        jsonError = true;
+        return;
+      }
+      
+      weather.tempC  = doc["main"]["temp"] | NAN;
+      weather.feelsC = doc["main"]["feels_like"] | NAN;
+      weather.minC   = doc["main"]["temp_min"] | NAN;
+      weather.maxC   = doc["main"]["temp_max"] | NAN;
+
+      const char* d = doc["weather"][0]["description"] | "";
+      const char* i = doc["weather"][0]["icon"] | "";
+      strncpy(weather.desc, d, sizeof(weather.desc) - 1);
+      weather.desc[sizeof(weather.desc) - 1] = '\0';
+      strncpy(weather.icon, i, sizeof(weather.icon) - 1);
+      weather.icon[sizeof(weather.icon) - 1] = '\0';
+    },
+    httpCode
   );
 
   if (!ok || httpCode < 200 || httpCode >= 300) {
@@ -848,23 +860,10 @@ static bool weatherFetchCurrent(double lat, double lon) {
     return false;
   }
 
-  StaticJsonDocument<4096> doc;
-  if (deserializeJson(doc, body)) {
+  if (jsonError) {
     weather.lastError = "OW JSON parse";
     return false;
   }
-
-  weather.tempC  = doc["main"]["temp"] | NAN;
-  weather.feelsC = doc["main"]["feels_like"] | NAN;
-  weather.minC   = doc["main"]["temp_min"] | NAN;
-  weather.maxC   = doc["main"]["temp_max"] | NAN;
-
-  const char* d = doc["weather"][0]["description"] | "";
-  const char* i = doc["weather"][0]["icon"] | "";
-  strncpy(weather.desc, d, sizeof(weather.desc) - 1);
-  weather.desc[sizeof(weather.desc) - 1] = '\0';
-  strncpy(weather.icon, i, sizeof(weather.icon) - 1);
-  weather.icon[sizeof(weather.icon) - 1] = '\0';
 
   weather.hasData = true;
   weather.lastFetchMs = millis();
@@ -874,7 +873,7 @@ static bool weatherFetchCurrent(double lat, double lon) {
   return true;
 }
 
-static void weatherResetOnStopChange() {
+void weatherResetOnStopChange() {
   weather.hasCoords = false;
   weather.hasData = false;
   weather.lastError = "";
@@ -886,7 +885,7 @@ static void weatherResetOnStopChange() {
   weather.icon[0] = '\0';
 }
 
-static void weatherTick() {
+void weatherTick() {
   if (!wifiConnected) return;
   if (cfg.weatherApiKey.isEmpty()) return;
   if (!haveStop(cfg)) return;
@@ -1017,7 +1016,7 @@ static void drawEmtLine(int idx, int y) {
   u8g2.drawStr(SCREEN_WIDTH - wRight, y, right);
 }
 
-static void drawEmtBoard() {
+void drawEmtBoard() {
   u8g2.clearBuffer();
   u8g2.setContrast(brightness);
 
@@ -1056,7 +1055,7 @@ static void drawEmtBoard() {
 }
 
 // ---------------------- Dibujo Weather ----------------------
-static void drawWeatherScreen() {
+void drawWeatherScreen() {
   u8g2.clearBuffer();
   u8g2.setContrast(brightness);
 
@@ -1554,13 +1553,7 @@ void setup() {
   if (tries >= 12) drawNoTimeScreen();
 
   // Routes
-  server.on("/", HTTP_GET, handleRoot);
-  server.on("/info", HTTP_GET, handleInfo);
-  server.on("/reboot", HTTP_GET, handleReboot);
-  server.on("/brightness", HTTP_GET, handleBrightness);
-  server.on("/sleepnow", HTTP_GET, handleSleepNow);
-  server.on("/config", HTTP_GET, handleConfigGet);
-  server.on("/config", HTTP_POST, handleConfigPost);
+  setupWebServer();
   server.begin();
 
   // Init Task WDT (vigila loopTask)

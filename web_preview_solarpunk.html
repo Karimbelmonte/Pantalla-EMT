@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pantalla EMT - Configuración</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Estilos base: Solar Punk & Transporte */
+        :root {
+            --bg-gradient: linear-gradient(135deg, #FFF9E6 0%, #E2F3E8 100%);
+            --card-bg: rgba(255, 255, 255, 0.75);
+            --card-border: rgba(255, 255, 255, 0.5);
+            --primary: #2D6A4F;
+            /* Verde orgánico oscuro */
+            --secondary: #D4A373;
+            /* Tono madera clara / dorado cálido */
+            --accent: #FFB703;
+            /* Amarillo sol */
+            --text-main: #1B4332;
+            /* Texto oscuro verde */
+            --text-muted: #52796F;
+            --shadow: 0 8px 32px rgba(45, 106, 79, 0.1);
+            --radius: 16px;
+        }
+
+        body {
+            font-family: 'Outfit', system-ui, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            margin: 40px 20px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 0;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .header h1 svg {
+            width: 36px;
+            height: 36px;
+            fill: var(--accent);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-top: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid var(--card-border);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #52B788;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #52B788;
+        }
+
+        /* Tarjetas (Cards) */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 12px 40px rgba(45, 106, 79, 0.15);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 2px solid rgba(212, 163, 115, 0.2);
+            padding-bottom: 12px;
+        }
+
+        .card h3 svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--secondary);
+        }
+
+        /* Inputs */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-muted);
+        }
+
+        input[type='text'],
+        input[type='password'],
+        input[type='number'],
+        select {
+            width: 100%;
+            padding: 12px 16px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+        }
+
+        input[type='text']:focus,
+        input[type='password']:focus,
+        input[type='number']:focus,
+        select:focus {
+            border-color: var(--secondary);
+            box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.1);
+        }
+
+        /* Checkbox estilo Toggle (Switch) */
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+
+        .checkbox-wrapper input[type="checkbox"] {
+            appearance: none;
+            width: 48px;
+            height: 24px;
+            background: rgba(27, 67, 50, 0.2);
+            border-radius: 12px;
+            position: relative;
+            cursor: pointer;
+            outline: none;
+            transition: background 0.3s;
+        }
+
+        .checkbox-wrapper input[type="checkbox"]::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .checkbox-wrapper input[type="checkbox"]:checked {
+            background: var(--primary);
+        }
+
+        .checkbox-wrapper input[type="checkbox"]:checked::after {
+            transform: translateX(24px);
+        }
+
+        .checkbox-label {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        /* Footer & Buttons */
+        .btn-submit {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 16px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-family: inherit;
+            border-radius: var(--radius);
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(45, 106, 79, 0.3);
+            transition: background 0.3s, transform 0.1s, box-shadow 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            background: #1B4332;
+            box-shadow: 0 6px 20px rgba(45, 106, 79, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+
+        .footer-links {
+            margin-top: 32px;
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid var(--card-border);
+            transition: all 0.2s;
+        }
+
+        .footer-links a:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .card {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="header">
+            <!-- Icono de Sol / Hoja / Bus abstracto (SVG simple) -->
+            <h1>
+                <svg viewBox="0 0 24 24">
+                    <path
+                        d="M12 2L15.09 5.09L19.14 4.14L20.09 8.19L23.18 11.28L20.09 14.37L19.14 18.42L15.09 17.47L12 20.56L8.91 17.47L4.86 18.42L3.91 14.37L0.82 11.28L3.91 8.19L4.86 4.14L8.91 5.09L12 2Z">
+                    </path>
+                </svg>
+                Pantalla EMT
+            </h1>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                192.168.1.100 &nbsp;|&nbsp; pantalla-emt.local
+            </div>
+        </div>
+
+        <form method="POST" action="/config">
+
+            <!-- CARD 1: Parada -->
+            <div class="card">
+                <h3>
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M4 16C4 17.1 4.9 18 6 18H6.5V20C6.5 20.55 6.95 21 7.5 21C8.05 21 8.5 20.55 8.5 20V18H15.5V20C15.5 20.55 15.95 21 16.5 21C17.05 21 17.5 20.55 17.5 20V18H18C19.1 18 20 17.1 20 16V6C20 3.5 16.42 2 12 2C7.58 2 4 3.5 4 6V16ZM7.5 13C6.67 13 6 12.33 6 11.5C6 10.67 6.67 10 7.5 10C8.33 10 9 10.67 9 11.5C9 12.33 8.33 13 7.5 13ZM16.5 13C15.67 13 15 12.33 15 11.5C15 10.67 15.67 10 16.5 10C17.33 10 18 10.67 18 11.5C18 12.33 17.33 13 16.5 13ZM18 7H6V6C6 4.9 8.69 4 12 4C15.31 4 18 4.9 18 6V7Z">
+                        </path>
+                    </svg>
+                    Parada de Autobús
+                </h3>
+                <div class="form-group">
+                    <label>ID de la Parada (StopId)</label>
+                    <input type="number" name="stopId" value="1234" placeholder="Ej: 1530">
+                </div>
+                <div class="form-group">
+                    <label>Nombre en pantalla (Opcional)</label>
+                    <input type="text" name="stopName" value="EMT Madrid" placeholder="Ej: Av. Andalucía">
+                </div>
+            </div>
+
+            <!-- CARD 2: Credenciales EMT -->
+            <div class="card">
+                <h3>
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M12 1L3 5V11C3 16.55 6.84 21.74 12 23C17.16 21.74 21 16.55 21 11V5L12 1ZM12 11.99H19C18.47 16.11 15.72 19.78 12 20.92V12H5V6.3L12 3.19V11.99Z">
+                        </path>
+                    </svg>
+                    Credenciales MobilityLabs
+                </h3>
+                <div class="form-group">
+                    <label>Correo Electrónico</label>
+                    <input type="text" name="emtEmail" value="tu.email@ejemplo.com">
+                </div>
+                <div class="form-group">
+                    <label>Contraseña</label>
+                    <input type="password" name="emtPassword" value="********">
+                </div>
+            </div>
+
+            <!-- CARD 3: OpenWeather -->
+            <div class="card">
+                <h3>
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M6.76 4.84L5.34 3.43L4.93 3.84C3.12 5.65 2.11 8.05 2.11 10.61C2.11 15.86 6.36 20.11 11.61 20.11C14.17 20.11 16.57 19.1 18.38 17.29L19.79 18.7L21.2 17.29L8.17 4.25L6.76 4.84ZM11.61 18.11C7.47 18.11 4.11 14.75 4.11 10.61C4.11 8.59 4.9 6.75 6.18 5.41L16.81 16.04C15.47 17.32 13.63 18.11 11.61 18.11Z">
+                        </path>
+                        <path
+                            d="M19.89 10.61C19.89 8.35 18.98 6.25 17.38 4.65L15.97 6.06C17.17 7.27 17.89 8.88 17.89 10.61C17.89 12.34 17.17 13.95 15.97 15.16L17.38 16.57C18.98 14.97 19.89 12.87 19.89 10.61Z">
+                        </path>
+                    </svg>
+                    Clima & Entorno
+                </h3>
+                <div class="form-group">
+                    <label>OpenWeather API Key</label>
+                    <input type="text" name="weatherKey" value="abc123456" placeholder="Pega tu clave aquí">
+                </div>
+            </div>
+
+            <!-- CARD 4: Pantalla & Tiempos -->
+            <div class="card">
+                <h3>
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M21 3H3C1.9 3 1 3.9 1 5V19C1 20.1 1.9 21 3 21H21C22.1 21 23 20.1 23 19V5C23 3.9 22.1 3 21 3ZM21 19H3V5H21V19Z">
+                        </path>
+                    </svg>
+                    OLED & Tiempos
+                </h3>
+                <div class="form-group">
+                    <label>Brillo del panel (1-255)</label>
+                    <input type="number" name="brightness" value="80" min="1" max="255">
+                </div>
+                <div style="display:flex; gap:16px;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Buses (seg)</label>
+                        <input type="number" name="busSecs" value="45">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Tiempo (seg)</label>
+                        <input type="number" name="weatherSecs" value="10">
+                    </div>
+                </div>
+            </div>
+
+            <!-- CARD 5: Ahorro Energético (Sleep) -->
+            <div class="card">
+                <h3>
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21ZM12 8.5C12 6.57 10.43 5 8.5 5C6.57 5 5 6.57 5 8.5C5 10.43 6.57 12 8.5 12C10.43 12 12 10.43 12 8.5Z">
+                        </path>
+                    </svg>
+                    Ahorro Energético
+                </h3>
+
+                <div class="form-group">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" name="sleepEnabled" checked>
+                        <span class="checkbox-label">Habilitar Horario de Sueño</span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Modo de Reposo</label>
+                    <select name="sleepMode">
+                        <option value="soft" selected>Soft (Pantalla tenue, WiFi activo)</option>
+                        <option value="deep">Deep Sleep (Apagado completo, ahorra ecosistema)</option>
+                    </select>
+                </div>
+
+                <div style="display:flex; gap:16px;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Apagar a las (0-23h)</label>
+                        <input type="number" name="sleepStarts" value="0" min="0" max="23">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Despertar a las (0-23h)</label>
+                        <input type="number" name="sleepEnds" value="6" min="0" max="23">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit -->
+            <button type="submit" class="btn-submit">Guardar Configuración 🌿</button>
+        </form>
+
+        <div class="footer-links">
+            <a href="/info">/info Sistema</a>
+            <a href="/reboot">Reiniciar Panel</a>
+            <a href="/sleepnow">Forzar Deep Sleep</a>
+        </div>
+
+    </div>
+
+</body>
+
+</html>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>Pantalla EMT</title>
+</head>
+<body style='font-family:Arial;max-width:720px;margin:20px;'>
+  <h2>Pantalla EMT</h2>
+  <p>
+    <b>IP:</b> 192.168.1.100<br>
+    <b>mDNS:</b> pantalla-emt.local
+  </p>
+  <form method='POST' action='/config'>
+    <hr>
+    <h3>Parada</h3>
+    <label>StopId</label><br>
+    <input name='stopId' value='1234' style='width:100%;padding:8px'><br><br>
+    
+    <label>Nombre en pantalla (opcional)</label><br>
+    <input name='stopName' value='EMT Madrid' style='width:100%;padding:8px'><br><br>
+
+    <hr>
+    <h3>Credenciales EMT (MobilityLabs Basic)</h3>
+    <label>EMT Email</label><br>
+    <input name='emtEmail' value='tu.email@ejemplo.com' style='width:100%;padding:8px'><br><br>
+    
+    <label>EMT Password</label><br>
+    <input name='emtPassword' type='password' value='********' style='width:100%;padding:8px'><br><br>
+
+    <hr>
+    <h3>OpenWeather</h3>
+    <label>OpenWeather API key</label><br>
+    <input name='weatherKey' value='abc123456' style='width:100%;padding:8px'><br><br>
+
+    <hr>
+    <h3>Pantalla</h3>
+    <label>Brillo (1-255)</label><br>
+    <input name='brightness' value='80' style='width:100%;padding:8px'><br><br>
+
+    <hr>
+    <h3>Duracion pantallas</h3>
+    <label>Buses (segundos)</label><br>
+    <input name='busSecs' value='45' style='width:100%;padding:8px'><br><br>
+    
+    <label>Tiempo (segundos)</label><br>
+    <input name='weatherSecs' value='10' style='width:100%;padding:8px'><br><br>
+
+    <hr>
+    <h3>Sleep</h3>
+    <label>
+      <input type='checkbox' name='sleepEnabled' checked> Habilitar sleep
+    </label><br><br>
+
+    <label>Modo</label><br>
+    <select name='sleepMode' style='width:100%;padding:8px'>
+      <option value='soft' selected>Soft (pantalla tenue, sigue vivo)</option>
+      <option value='deep'>Deep Sleep (apaga y despierta a endHour)</option>
+    </select><br><br>
+
+    <label>Sleep starts (0-23)</label><br>
+    <input name='sleepStarts' value='0' style='width:100%;padding:8px'><br><br>
+
+    <label>Sleep ends (0-23)</label><br>
+    <input name='sleepEnds' value='6' style='width:100%;padding:8px'><br><br>
+
+    <button type='submit' style='padding:10px 14px;'>Guardar cambios</button>
+  </form>
+
+  <hr>
+  <p>
+    <a href='/info'>/info</a> | 
+    <a href='/reboot'>Reiniciar</a> | 
+    <a href='/sleepnow'>Deep sleep now</a>
+  </p>
+</body>
+</html>

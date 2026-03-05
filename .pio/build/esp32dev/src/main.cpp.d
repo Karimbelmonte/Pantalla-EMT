@@ -347,4 +347,5 @@
  .pio/libdeps/esp32dev/U8g2/src/clib/u8x8.h \
  .pio/libdeps/esp32dev/U8g2/src/clib/u8g2.h \
  .pio/libdeps/esp32dev/U8g2/src/clib/u8x8.h lib/stationData/stationData.h \
+ include/globals.h include/web_server.h \
  /home/karim/.platformio/packages/framework-arduinoespressif32-libs/esp32/include/esp_system/include/esp_task_wdt.h

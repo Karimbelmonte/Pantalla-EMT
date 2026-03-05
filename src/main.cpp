@@ -49,7 +49,7 @@
 
 // ---------------------- Versión ----------------------
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 10
+#define VERSION_MINOR 11
 
 // ---------------------- Watchdogs ----------------------
 extern const int WDT_TIMEOUT_S = 15;
@@ -972,48 +972,28 @@ static const unsigned char* weatherIconBitmap16(const char* owIcon) {
 }
 
 // ---------------------- Dibujo EMT ----------------------
-static void drawEmtLine(int idx, int y) {
+static void drawEmtLine(const char* line, const char* dest, const int* arrivals, int count, int y) {
   u8g2.setFont(u8g2_font_6x10_tf);
   blankArea(0, y, SCREEN_WIDTH, 12);
 
-  if (idx >= station.numServices) {
-    if (messages.numMessages > 0 && idx == 0) centreText(messages.messages[0], y);
-    return;
-  }
-
-  rdService& svc = station.service[idx];
-
   char left[96];
-  const char* line = svc.via;
-  const char* dest = svc.destination;
-  if (line && line[0] != '\0') snprintf(left, sizeof(left), "%d  %s %s", idx + 1, line, dest);
-  else snprintf(left, sizeof(left), "%d  %s", idx + 1, dest);
+  if (line && line[0] != '\0') snprintf(left, sizeof(left), "%s %s", line, dest);
+  else snprintf(left, sizeof(left), "%s", dest);
 
-  int elapsed = 0;
-  if (svc.receivedAtMs != 0) {
-    elapsed = (int)((millis() - svc.receivedAtMs) / 1000UL);
-    if (elapsed > 90) elapsed = 90;
+  String right = "";
+  for (int i = 0; i < count; i++) {
+    if (i > 0) right += ", ";
+    if (arrivals[i] <= 60) right += "Due";
+    else right += String((arrivals[i] + 30) / 60) + " min";
   }
 
-  int secs = svc.timeToStation - elapsed;
-  if (secs < 0) secs = 0;
-
-  char right[16];
-  if (secs <= 60) {
-    strncpy(right, "Due", sizeof(right));
-    right[sizeof(right)-1] = '\0';
-  } else {
-    int mins = (secs + 30) / 60;
-    snprintf(right, sizeof(right), "%d min", mins);
-  }
-
-  int wRight = u8g2.getStrWidth(right);
+  int wRight = u8g2.getStrWidth(right.c_str());
   int maxLeftWidth = SCREEN_WIDTH - wRight - 6;
 
   if (u8g2.getStrWidth(left) <= maxLeftWidth) u8g2.drawStr(0, y, left);
   else drawTruncatedText(left, 0, y, maxLeftWidth);
 
-  u8g2.drawStr(SCREEN_WIDTH - wRight, y, right);
+  u8g2.drawStr(SCREEN_WIDTH - wRight, y, right.c_str());
 }
 
 void drawEmtBoard() {
@@ -1045,9 +1025,53 @@ void drawEmtBoard() {
     return;
   }
 
-  drawEmtLine(0, 18);
-  drawEmtLine(1, 32);
-  drawEmtLine(2, 46);
+  if (station.numServices == 0) {
+    if (messages.numMessages > 0) centreText(messages.messages[0], 18);
+    else centreText("Sin estimaciones", 18);
+  } else {
+    // Agrupación de servicios por línea/destino
+    struct Group {
+      String line;
+      String dest;
+      int arrivals[4];
+      int count;
+    };
+    Group groups[MAXBOARDSERVICES];
+    int numGroups = 0;
+
+    for (int i = 0; i < station.numServices; i++) {
+      rdService& svc = station.service[i];
+      int elapsed = (svc.receivedAtMs != 0) ? (int)((millis() - svc.receivedAtMs) / 1000UL) : 0;
+      if (elapsed > 90) elapsed = 90;
+      int secs = svc.timeToStation - elapsed;
+      if (secs < 0) secs = 0;
+
+      bool found = false;
+      for (int j = 0; j < numGroups; j++) {
+        if (groups[j].line == svc.via && groups[j].dest == svc.destination) {
+          if (groups[j].count < 4) {
+            groups[j].arrivals[groups[j].count++] = secs;
+          }
+          found = true;
+          break;
+        }
+      }
+
+      if (!found && numGroups < MAXBOARDSERVICES) {
+        groups[numGroups].line = svc.via;
+        groups[numGroups].dest = svc.destination;
+        groups[numGroups].arrivals[0] = secs;
+        groups[numGroups].count = 1;
+        numGroups++;
+      }
+    }
+
+    // Dibujar hasta 3 grupos (filas)
+    int yPositions[] = {18, 32, 46};
+    for (int i = 0; i < numGroups && i < 3; i++) {
+      drawEmtLine(groups[i].line.c_str(), groups[i].dest.c_str(), groups[i].arrivals, groups[i].count, yPositions[i]);
+    }
+  }
 
   drawStatusBarIcons();
   u8g2.sendBuffer();

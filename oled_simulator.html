@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMT Display Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=Press+Start+2P&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #FFF9E6 0%, #E2F3E8 100%);
+            --primary: #2D6A4F;
+            --accent: #FFB703;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --oled-bg: #000;
+            --oled-text: #FFF;
+            /* SSD1322 is grayscale, but we'll use white for sim */
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-gradient);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: var(--primary);
+        }
+
+        .container {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            max-width: 800px;
+            width: 90%;
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        p {
+            margin-bottom: 2rem;
+            opacity: 0.8;
+        }
+
+        .oled-wrapper {
+            background: #222;
+            padding: 20px;
+            border-radius: 10px;
+            display: inline-block;
+            box-shadow: inset 0 0 10px #000;
+            margin-bottom: 2rem;
+        }
+
+        canvas {
+            background: var(--oled-bg);
+            image-rendering: pixelated;
+            border: 2px solid #444;
+            max-width: 100%;
+            height: auto;
+            width: 512px;
+            /* 2x scale for visibility */
+            height: 128px;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            text-align: left;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        input,
+        select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            font-family: inherit;
+        }
+
+        .btn-toggle {
+            grid-column: span 2;
+            padding: 12px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .btn-toggle:hover {
+            transform: scale(1.02);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>OLED Simulator (256x64)</h1>
+        <p>Previsualiza cómo se verá la información en tu pantalla real.</p>
+
+        <div class="oled-wrapper">
+            <canvas id="oled" width="256" height="64"></canvas>
+        </div>
+
+        <div class="controls">
+            <button class="btn-toggle" onclick="toggleScreen()">Cambiar Pantalla (Bus / Tiempo)</button>
+
+            <div class="control-group">
+                <label>Nombre Parada</label>
+                <input type="text" id="stopName" value="EMT Madrid" oninput="draw()">
+            </div>
+
+            <div class="control-group">
+                <label>Línea 1</label>
+                <input type="text" id="line1" value="27 Embajadores" oninput="draw()">
+            </div>
+
+            <div class="control-group">
+                <label>Tiempo 1 (min)</label>
+                <input type="number" id="time1" value="5" oninput="draw()">
+            </div>
+
+            <div class="control-group">
+                <label>Clima</label>
+                <input type="text" id="weatherDesc" value="Cielo despejado" oninput="draw()">
+            </div>
+
+            <div class="control-group">
+                <label>Temperatura</label>
+                <input type="number" id="temp" value="18" oninput="draw()">
+            </div>
+
+            <div class="control-group">
+                <label>Brillo (Simulado)</label>
+                <input type="range" id="brightness" min="10" max="255" value="200" oninput="draw()">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('oled');
+        const ctx = canvas.getContext('2d');
+
+        let currentScreen = 'BUS'; // BUS or WEATHER
+
+        // Mock Bitmaps (simplified versions of the C++ ones)
+        const icons = {
+            'sun': [
+                "0000001000001000",
+                "0000011100011100",
+                "0100111110111110",
+                "1111111111111111",
+                "1111111111111111",
+                "0101111110111110",
+                "0001111100011100",
+                "0000111000001000"
+            ]
+        };
+
+        function toggleScreen() {
+            currentScreen = (currentScreen === 'BUS') ? 'WEATHER' : 'BUS';
+            draw();
+        }
+
+        function draw() {
+            const stopName = document.getElementById('stopName').value;
+            const line1 = document.getElementById('line1').value;
+            const time1 = document.getElementById('time1').value;
+            const weatherDesc = document.getElementById('weatherDesc').value;
+            const temp = document.getElementById('temp').value;
+            const brightness = document.getElementById('brightness').value;
+
+            // Limpiar pantalla
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 256, 64);
+
+            // Aplicar "brillo" (opacidad del texto)
+            const alpha = (brightness / 255).toFixed(2);
+            ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+
+            // Fonts: Emulator of U8g2
+            // Header: 6x13 approx
+            ctx.font = '13px monospace';
+            ctx.textBaseline = 'top';
+
+            if (currentScreen === 'BUS') {
+                // Título central
+                const headerWidth = ctx.measureText(stopName).width;
+                ctx.fillText(stopName, (256 - headerWidth) / 2, 0);
+
+                // Reloj
+                ctx.font = '10px monospace';
+                ctx.fillText('12:45', 220, 0);
+
+                // Líneas de bus (y=18, 32, 46)
+                ctx.font = '10px monospace';
+
+                // Fila 1: Agrupada
+                ctx.fillText(line1, 0, 18);
+                const t1Text = time1 <= 1 ? "Due, 12 min" : `${time1}, 12 min`;
+                const t1Width = ctx.measureText(t1Text).width;
+                ctx.fillText(t1Text, 256 - t1Width, 18);
+
+                // Fila 2
+                ctx.fillText("14 Pza. España", 0, 32);
+                ctx.fillText("8, 15 min", 256 - ctx.measureText("8, 15 min").width, 32);
+
+                // Fila 3
+                ctx.fillText("C1 Atocha", 0, 46);
+                ctx.fillText("2, 11, 22 min", 256 - ctx.measureText("2, 11, 22 min").width, 46);
+
+            } else {
+                // Pantalla Tiempo
+                const headerWidth = ctx.measureText("Tiempo").width;
+                ctx.fillText("Tiempo", (256 - headerWidth) / 2, 0);
+
+                ctx.font = '10px monospace';
+                ctx.fillText('12:45', 220, 0);
+
+                // Icono (reemplazado por un cuadrado para simplicidad o mini sketch)
+                ctx.fillRect(2, 16, 12, 12);
+
+                // Descripción
+                ctx.fillText(weatherDesc, 20, 18);
+
+                // Temperaturas
+                ctx.font = '13px monospace';
+                ctx.fillText(`Ahora: ${temp}°`, 0, 32);
+                ctx.fillText(`Sens: ${parseInt(temp) - 2}°`, 86, 32);
+
+                ctx.font = '10px monospace';
+                ctx.fillText(`Min: ${parseInt(temp) - 4}°      Max: ${parseInt(temp) + 3}°`, 0, 46);
+            }
+
+            // Barra de estado (iconos WiFi/NTP)
+            ctx.font = '8px monospace';
+            ctx.fillText('WiFi OK  NTP', 0, 56);
+            ctx.fillText('v0.10', 230, 56);
+        }
+
+        // Inicializar
+        window.onload = draw;
+    </script>
+
+</body>
+
+</html>

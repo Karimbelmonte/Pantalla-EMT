@@ -1563,13 +1563,16 @@ static void checkUpdates() {
   );
 
   if (httpCode == 200 && !latestVersion.isEmpty() && !downloadUrl.isEmpty()) {
-    // Limpiamos la "v" si el tag es "v1.0"
+    latestVersion.trim();
     if (latestVersion.startsWith("v")) latestVersion = latestVersion.substring(1);
     
-    Serial.println("Versión actual: " + currentVersion + " | Última en GitHub: " + latestVersion);
+    Serial.println("------------------------------------");
+    Serial.print("OTA - Versión Local:  '"); Serial.print(currentVersion); Serial.println("'");
+    Serial.print("OTA - Versión GitHub: '"); Serial.print(latestVersion); Serial.println("'");
+    Serial.print("OTA - URL Descarga: "); Serial.println(downloadUrl);
 
     if (latestVersion != currentVersion) {
-      Serial.println("¡Nueva versión detectada! Descargando...");
+      Serial.println("OTA - ¡DIFERENCIA DETECTADA! Iniciando actualización...");
       drawLoadingScreen("Actualizando firmware...");
       
       // La redirección de GitHub (Amazon S3) requiere seguirla

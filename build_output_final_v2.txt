@@ -1,0 +1,115 @@
+Processing esp32dev (platform: https://github.com/pioarduino/platform-espressif32/releases/download/stable/platform-espressif32.zip; board: esp32dev; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32dev.html
+PLATFORM: Espressif 32 (55.3.37) > Espressif ESP32 Dev Module
+HARDWARE: ESP32 240MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - contrib-piohome @ 3.4.4 
+ - framework-arduinoespressif32 @ 3.3.7 
+ - framework-arduinoespressif32-libs @ 5.5.0+sha.87912cd291 
+ - tool-esptoolpy @ 5.1.2 
+ - toolchain-xtensa-esp-elf @ 14.2.0+20251107
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 47 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- WiFiManager @ 2.0.17
+|-- U8g2 @ 2.36.5
+|-- ArduinoJson @ 7.2.0
+|-- ESPmDNS @ 3.3.7
+|-- FS @ 3.3.7
+|-- HTTPClient @ 3.3.7
+|-- HTTPUpdate @ 3.3.7
+|-- LittleFS @ 3.3.7
+|-- SPI @ 3.3.7
+|-- WebServer @ 3.3.7
+|-- WiFi @ 3.3.7
+|-- NetworkClientSecure @ 3.3.7
+|-- stationData
+Building in release mode
+Compiling .pio/build/esp32dev/src/main.cpp.o
+src/main.cpp: In function 'bool loadConfig(AppConfig&)':
+src/main.cpp:162:3: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  162 |   StaticJsonDocument<1408> doc; // un poco más por nuevos campos
+      |   ^~~~~~~~~~~~~~~~~~
+In file included from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.hpp:56,
+                 from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/main.cpp:34:
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In function 'bool saveConfig(const AppConfig&)':
+src/main.cpp:191:3: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  191 |   StaticJsonDocument<1408> doc;
+      |   ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:534:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  534 |       StaticJsonDocument<3072> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:641:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  641 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:694:5: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  694 |     StaticJsonDocument<8192> doc;
+      |     ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:850:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  850 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:1652:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+ 1652 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+Linking .pio/build/esp32dev/firmware.elf
+                            Memory Type Usage Summary                             
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Memory Type/Section ┃ Used [bytes] ┃ Used [%] ┃ Remain [bytes] ┃ Total [bytes] ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ Flash Code          │       962000 │          │                │               │
+│    .text            │       962000 │          │                │               │
+│ Flash Data          │       250280 │          │                │               │
+│    .rodata          │       250024 │          │                │               │
+│    .appdesc         │          256 │          │                │               │
+│ IRAM                │        92647 │    70.68 │          38425 │        131072 │
+│    .text            │        91619 │     69.9 │                │               │
+│    .vectors         │         1028 │     0.78 │                │               │
+│ DRAM                │        60301 │     48.4 │          64279 │        124580 │
+│    .bss             │        34648 │    27.81 │                │               │
+│    .data            │        25653 │    20.59 │                │               │
+└─────────────────────┴──────────────┴──────────┴────────────────┴───────────────┘
+Total image size: 1330580 bytes (.bin may be padded larger)
+Note: The reported total sizes may be smaller than those in the technical reference manual due to reserved memory and application configuration. The total flash size available for the application is not included by default, as it cannot be reliably determined due to the presence of other data like the bootloader, partition table, and application partition size.
+Retrieving maximum program size .pio/build/esp32dev/firmware.elf
+Checking size .pio/build/esp32dev/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [==        ]  18.4% (used 60304 bytes from 327680 bytes)
+Flash: [=======   ]  67.7% (used 1330324 bytes from 1966080 bytes)
+Building .pio/build/esp32dev/firmware.bin
+esptool v5.1.2
+Creating ESP32 image...
+Merged 2 ELF sections.
+Successfully created ESP32 image.
+========================= [SUCCESS] Took 25.53 seconds =========================

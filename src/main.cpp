@@ -49,7 +49,7 @@
 
 // ---------------------- Versión ----------------------
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 11
+#define VERSION_MINOR 12
 
 // ---------------------- Watchdogs ----------------------
 extern const int WDT_TIMEOUT_S = 15;
@@ -130,14 +130,22 @@ UiScreen uiScreen = UI_BUS;
 unsigned long uiNextSwitchMs = 0;
 uint32_t UI_BUS_MS = 45000UL;
 uint32_t UI_WEATHER_MS = 10000UL;
+uint32_t UI_BUS2_MS = 0UL;
 
 void uiScheduleNext() {
-  uiNextSwitchMs = millis() + ((uiScreen == UI_BUS) ? UI_BUS_MS : UI_WEATHER_MS);
+  uint32_t dur;
+  if (uiScreen == UI_BUS) {
+    // Tiempo de bus = total - bus2 (para que BUS+BUS2 == uiBusMs)
+    uint32_t bus2 = (UI_BUS2_MS > 0) ? UI_BUS2_MS : 0;
+    dur = (UI_BUS_MS > bus2) ? (UI_BUS_MS - bus2) : UI_BUS_MS;
+  } else if (uiScreen == UI_BUS2) {
+    dur = UI_BUS2_MS;
+  } else { // UI_WEATHER
+    dur = UI_WEATHER_MS;
+  }
+  uiNextSwitchMs = millis() + dur;
 }
-void uiToggleScreen() {
-  uiScreen = (uiScreen == UI_BUS) ? UI_WEATHER : UI_BUS;
-  uiScheduleNext();
-}
+
 
 // ---------------------- Helpers: “salud” ----------------------
 void markHealthy() {
@@ -164,11 +172,13 @@ bool loadConfig(AppConfig& out) {
 
   out.uiBusMs       = doc["uiBusMs"]       | 45000UL;
   out.uiWeatherMs   = doc["uiWeatherMs"]   | 10000UL;
+  out.uiBus2Ms      = doc["uiBus2Ms"]      | 0UL;
 
   out.sleepEnabled  = doc["sleepEnabled"]  | false;
   out.sleepDeep     = doc["sleepDeep"]     | false;
   out.sleepStarts   = doc["sleepStarts"]   | 0;
   out.sleepEnds     = doc["sleepEnds"]     | 6;
+  out.combineArrivals = doc["combineArrivals"] | true;
 
   // sane defaults
   if (out.sleepStarts > 23) out.sleepStarts = 0;
@@ -187,11 +197,13 @@ bool saveConfig(const AppConfig& in) {
   doc["weatherApiKey"] = in.weatherApiKey;
   doc["uiBusMs"]       = in.uiBusMs;
   doc["uiWeatherMs"]   = in.uiWeatherMs;
+  doc["uiBus2Ms"]      = in.uiBus2Ms;
 
   doc["sleepEnabled"]  = in.sleepEnabled;
   doc["sleepDeep"]     = in.sleepDeep;
   doc["sleepStarts"]   = in.sleepStarts;
   doc["sleepEnds"]     = in.sleepEnds;
+  doc["combineArrivals"] = in.combineArrivals;
 
   File f = LittleFS.open(CFG_PATH, "w");
   if (!f) return false;
@@ -414,7 +426,7 @@ void enterDeepSleepUntilWake() {
 
   // Para ahorrar, apagamos WiFi y servidor
   server.stop();
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);
   WiFi.mode(WIFI_MODE_NULL);
 
   // Desactiva WDT para no tener comportamientos raros en el paso a sleep
@@ -744,12 +756,13 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     return false;
   }
 
-  if (httpCode == 401 || httpCode == 403) {
+  // Si código es 80, o error HTTP de auth, intentamos login y reintento
+  if (httpCode == 401 || httpCode == 403 || scode == "80") {
     emtAccessToken = "";
     emtTokenExpiresAtMs = 0;
 
     if (!emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) {
-      emtLastErrorMsg = "Token invalid";
+      emtLastErrorMsg = "Auth retry fail (" + scode + ")";
       return false;
     }
 
@@ -982,7 +995,7 @@ static void drawEmtLine(const char* line, const char* dest, const int* arrivals,
 
   String right = "";
   for (int i = 0; i < count; i++) {
-    if (i > 0) right += ", ";
+    if (i > 0) right += " "; // Removed the comma
     if (arrivals[i] <= 60) right += "Due";
     else right += String((arrivals[i] + 30) / 60) + " min";
   }
@@ -1049,11 +1062,12 @@ void drawEmtBoard() {
       bool found = false;
       for (int j = 0; j < numGroups; j++) {
         if (groups[j].line == svc.via && groups[j].dest == svc.destination) {
-          if (groups[j].count < 4) {
+          int maxPerLine = cfg.combineArrivals ? 2 : 1; 
+          if (groups[j].count < maxPerLine) {
             groups[j].arrivals[groups[j].count++] = secs;
+            found = true;
+            break;
           }
-          found = true;
-          break;
         }
       }
 
@@ -1071,6 +1085,96 @@ void drawEmtBoard() {
     for (int i = 0; i < numGroups && i < 3; i++) {
       drawEmtLine(groups[i].line.c_str(), groups[i].dest.c_str(), groups[i].arrivals, groups[i].count, yPositions[i]);
     }
+  }
+
+  drawStatusBarIcons();
+  u8g2.sendBuffer();
+  markHealthy();
+}
+
+// Cuenta cuántos grupos hay (para omitir UI_BUS2 en runtime si <=3)
+static int countEmtGroups() {
+  if (station.numServices == 0) return 0;
+  struct MiniGroup { String line; String dest; };
+  MiniGroup mg[MAXBOARDSERVICES];
+  int n = 0;
+  for (int i = 0; i < station.numServices; i++) {
+    rdService& svc = station.service[i];
+    bool found = false;
+    for (int j = 0; j < n; j++) {
+      if (mg[j].line == svc.via && mg[j].dest == svc.destination) { found = true; break; }
+    }
+    if (!found && n < MAXBOARDSERVICES) {
+      mg[n].line = svc.via;
+      mg[n].dest = svc.destination;
+      n++;
+    }
+  }
+  return n;
+}
+
+void drawEmtBoard2() {
+  u8g2.clearBuffer();
+  u8g2.setContrast(brightness);
+
+  u8g2.setFont(u8g2_font_6x13_tf);
+  centreText(cfg.emtStopName.c_str(), 0);
+
+  drawClock(false);
+
+  u8g2.setFont(u8g2_font_6x10_tf);
+
+  if (station.numServices == 0) {
+    // No debería ocurrir (la omisión en runtime lo evita), pero por si acaso
+    centreText("Sin estimaciones", 28);
+    drawStatusBarIcons();
+    u8g2.sendBuffer();
+    markHealthy();
+    return;
+  }
+
+  // Re-calcular los grupos (igual que en drawEmtBoard)
+  struct Group {
+    String line;
+    String dest;
+    int arrivals[4];
+    int count;
+  };
+  Group groups[MAXBOARDSERVICES];
+  int numGroups = 0;
+
+  for (int i = 0; i < station.numServices; i++) {
+    rdService& svc = station.service[i];
+    int elapsed = (svc.receivedAtMs != 0) ? (int)((millis() - svc.receivedAtMs) / 1000UL) : 0;
+    if (elapsed > 90) elapsed = 90;
+    int secs = svc.timeToStation - elapsed;
+    if (secs < 0) secs = 0;
+
+    bool found = false;
+    for (int j = 0; j < numGroups; j++) {
+      if (groups[j].line == svc.via && groups[j].dest == svc.destination) {
+        int maxPerLine = cfg.combineArrivals ? 2 : 1;
+        if (groups[j].count < maxPerLine) {
+          groups[j].arrivals[groups[j].count++] = secs;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found && numGroups < MAXBOARDSERVICES) {
+      groups[numGroups].line = svc.via;
+      groups[numGroups].dest = svc.destination;
+      groups[numGroups].arrivals[0] = secs;
+      groups[numGroups].count = 1;
+      numGroups++;
+    }
+  }
+
+  // Dibujar grupos 4, 5, 6 (índices 3, 4, 5)
+  int yPositions[] = {18, 32, 46};
+  int drawn = 0;
+  for (int i = 3; i < numGroups && drawn < 3; i++, drawn++) {
+    drawEmtLine(groups[i].line.c_str(), groups[i].dest.c_str(), groups[i].arrivals, groups[i].count, yPositions[drawn]);
   }
 
   drawStatusBarIcons();
@@ -1622,9 +1726,12 @@ void setup() {
   if (cfg.emtStopName.isEmpty()) cfg.emtStopName = "EMT Madrid";
   if (cfg.uiBusMs == 0) cfg.uiBusMs = 45000UL;
   if (cfg.uiWeatherMs == 0) cfg.uiWeatherMs = 10000UL;
+  // uiBus2Ms: 0 es válido (desactivado)
+  if (cfg.uiBus2Ms > cfg.uiBusMs) cfg.uiBus2Ms = 0UL; // saneado
 
   UI_BUS_MS = cfg.uiBusMs;
   UI_WEATHER_MS = cfg.uiWeatherMs;
+  UI_BUS2_MS = cfg.uiBus2Ms;
 
   clearBoard();
   weatherResetOnStopChange();
@@ -1633,13 +1740,14 @@ void setup() {
   drawStartupScreen("Conectando WiFi...");
   WiFi.mode(WIFI_MODE_NULL);
   WiFi.setSleep(WIFI_PS_NONE);
+  WiFi.persistent(true);
   WiFi.mode(WIFI_STA);
 
   WiFiManager wm;
   wm.setAPCallback(wmConfigModeCallback);
   wm.setWiFiAutoReconnect(true);
-  wm.setConnectTimeout(10);
-  wm.setConnectRetries(2);
+  wm.setConnectTimeout(30);
+  wm.setConnectRetries(3);
 
   bool ok = wm.autoConnect("Pantalla EMT");
   if (!ok) ESP.restart();
@@ -1764,21 +1872,40 @@ void loop() {
 
   // Alternancia pantallas
   if (millis() > uiNextSwitchMs) {
-    uiToggleScreen();
-    if (uiScreen == UI_BUS) drawEmtBoard();
-    else drawWeatherScreen();
+    // Determinar siguiente estado
+    UiScreen next;
+    if (uiScreen == UI_BUS) {
+      // Pasar a BUS2 solo si está activo Y hay más de 3 grupos disponibles
+      if (UI_BUS2_MS > 0 && countEmtGroups() > 3) {
+        next = UI_BUS2;
+      } else {
+        next = UI_WEATHER;
+      }
+    } else if (uiScreen == UI_BUS2) {
+      next = UI_WEATHER;
+    } else { // UI_WEATHER
+      next = UI_BUS;
+    }
+    uiScreen = next;
+    uiScheduleNext();
+
+    if (uiScreen == UI_BUS)       drawEmtBoard();
+    else if (uiScreen == UI_BUS2) drawEmtBoard2();
+    else                          drawWeatherScreen();
   }
 
   // EMT update
   if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg) && millis() > nextDataUpdate) {
     (void)getEmtBoard();
     if (uiScreen == UI_BUS) drawEmtBoard();
+    else if (uiScreen == UI_BUS2) drawEmtBoard2();
   }
 
   // Si faltan credenciales, repinta de vez en cuando
   if (wifiConnected && appState == ST_RUNNING && (!haveCreds(cfg)) && millis() > nextDataUpdate) {
     nextDataUpdate = millis() + DATAUPDATEINTERVAL;
     if (uiScreen == UI_BUS) drawEmtBoard();
+    else if (uiScreen == UI_BUS2) drawEmtBoard2();
   }
 
   // reloj

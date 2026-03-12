@@ -37,12 +37,16 @@ struct AppConfig {
   // Duraciones UI
   uint32_t uiBusMs;
   uint32_t uiWeatherMs;
+  uint32_t uiBus2Ms;   // 0 = desactivado
 
   // Sleep
   bool sleepEnabled;
   bool sleepDeep;        // true = deep sleep, false = sleep suave (pantalla dim, sigue vivo)
   uint8_t sleepStarts;   // 0..23
   uint8_t sleepEnds;     // 0..23
+
+  // UI preferences
+  bool combineArrivals;
 };
 
 extern AppConfig cfg;
@@ -106,12 +110,13 @@ extern WeatherState weather;
 #define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL)
 
 // ---------------------- UI alternancia ----------------------
-enum UiScreen : uint8_t { UI_BUS = 0, UI_WEATHER = 1 };
+enum UiScreen : uint8_t { UI_BUS = 0, UI_WEATHER = 1, UI_BUS2 = 2 };
 extern UiScreen uiScreen;
 
 extern unsigned long uiNextSwitchMs;
 extern uint32_t UI_BUS_MS;
 extern uint32_t UI_WEATHER_MS;
+extern uint32_t UI_BUS2_MS;
 
 // ---------------------- Declaraciones de funciones ----------------------
 void uiScheduleNext();
@@ -131,6 +136,7 @@ void weatherResetOnStopChange();
 void weatherTick();
 
 void drawEmtBoard();
+void drawEmtBoard2();
 void drawWeatherScreen();
 void drawLoadingScreen(const char* msg);
 void enterDeepSleepUntilWake();

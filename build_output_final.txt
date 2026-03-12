@@ -1,0 +1,136 @@
+Processing esp32dev (platform: https://github.com/pioarduino/platform-espressif32/releases/download/stable/platform-espressif32.zip; board: esp32dev; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32dev.html
+PLATFORM: Espressif 32 (55.3.37) > Espressif ESP32 Dev Module
+HARDWARE: ESP32 240MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - contrib-piohome @ 3.4.4 
+ - framework-arduinoespressif32 @ 3.3.7 
+ - framework-arduinoespressif32-libs @ 5.5.0+sha.87912cd291 
+ - tool-esptoolpy @ 5.1.2 
+ - toolchain-xtensa-esp-elf @ 14.2.0+20251107
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 47 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- WiFiManager @ 2.0.17
+|-- U8g2 @ 2.36.5
+|-- ArduinoJson @ 7.2.0
+|-- ESPmDNS @ 3.3.7
+|-- FS @ 3.3.7
+|-- HTTPClient @ 3.3.7
+|-- HTTPUpdate @ 3.3.7
+|-- LittleFS @ 3.3.7
+|-- SPI @ 3.3.7
+|-- WebServer @ 3.3.7
+|-- WiFi @ 3.3.7
+|-- NetworkClientSecure @ 3.3.7
+|-- stationData
+Building in release mode
+Compiling .pio/build/esp32dev/src/main.cpp.o
+Compiling .pio/build/esp32dev/src/web_server.cpp.o
+src/main.cpp: In function 'bool loadConfig(AppConfig&)':
+src/main.cpp:162:3: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  162 |   StaticJsonDocument<1408> doc; // un poco más por nuevos campos
+      |   ^~~~~~~~~~~~~~~~~~
+In file included from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.hpp:56,
+                 from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/main.cpp:34:
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In function 'bool saveConfig(const AppConfig&)':
+src/main.cpp:191:3: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  191 |   StaticJsonDocument<1408> doc;
+      |   ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:534:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  534 |       StaticJsonDocument<3072> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:641:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  641 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:694:5: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  694 |     StaticJsonDocument<8192> doc;
+      |     ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: At global scope:
+src/main.cpp:763:32: error: 'url' was not declared in this scope
+  763 |   bool ok = httpPostJsonStream(url, payload,
+      |                                ^~~
+src/main.cpp:763:37: error: 'payload' was not declared in this scope
+  763 |   bool ok = httpPostJsonStream(url, payload,
+      |                                     ^~~~~~~
+src/main.cpp:764:6: error: non-local lambda expression cannot have a capture-default
+  764 |     [&](HTTPClient& http) {
+      |      ^
+src/main.cpp:767:5: error: 'parseArrivals' was not declared in this scope
+  767 |     parseArrivals,
+      |     ^~~~~~~~~~~~~
+src/main.cpp:768:5: error: 'httpCode' was not declared in this scope
+  768 |     httpCode
+      |     ^~~~~~~~
+src/main.cpp:771:3: error: expected unqualified-id before 'if'
+  771 |   if (!ok) {
+      |   ^~
+src/main.cpp:777:3: error: expected unqualified-id before 'if'
+  777 |   if (httpCode == 401 || httpCode == 403 || scode == "80") {
+      |   ^~
+src/main.cpp:800:3: error: expected unqualified-id before 'if'
+  800 |   if (httpCode < 200 || httpCode >= 300) {
+      |   ^~
+src/main.cpp:805:3: error: expected unqualified-id before 'if'
+  805 |   if (jsonError) {
+      |   ^~
+src/main.cpp:810:3: error: expected unqualified-id before 'if'
+  810 |   if (scode == "00" || scode == "01") {
+      |   ^~
+src/main.cpp:820:3: error: 'emtLastErrorMsg' does not name a type
+  820 |   emtLastErrorMsg = "Arrive code " + scode + " " + sdesc;
+      |   ^~~~~~~~~~~~~~~
+src/main.cpp:821:13: error: expected constructor, destructor, or type conversion before '(' token
+  821 |   setMessage("Error EMT " + scode);
+      |             ^
+src/main.cpp:822:3: error: expected unqualified-id before 'return'
+  822 |   return false;
+      |   ^~~~~~
+src/main.cpp:823:1: error: expected declaration before '}' token
+  823 | }
+      | ^
+src/main.cpp: In lambda function:
+src/main.cpp:867:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  867 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:1669:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+ 1669 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In function 'bool emtFetchArrivalsV1(const String&)':
+src/main.cpp:761:3: error: control reaches end of non-void function [-Werror=return-type]
+  761 |   };
+      |   ^
+cc1plus: some warnings being treated as errors
+*** [.pio/build/esp32dev/src/main.cpp.o] Error 1
+========================= [FAILED] Took 15.68 seconds =========================

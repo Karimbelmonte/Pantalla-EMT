@@ -3,7 +3,7 @@
 #include <WiFi.h>
 
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 10
+#define VERSION_MINOR 12
 
 extern const int WDT_TIMEOUT_S;
 extern const unsigned long SOFT_WDT_MS;
@@ -68,6 +68,7 @@ static void handleInfo() {
   msg += "OpenWeather key set: " + String(cfg.weatherApiKey.isEmpty() ? "NO" : "YES") + "\n";
   msg += "UI BUS ms: " + String(cfg.uiBusMs) + "\n";
   msg += "UI WEATHER ms: " + String(cfg.uiWeatherMs) + "\n";
+  msg += "Combine arrivals: " + String(cfg.combineArrivals ? "YES" : "NO") + "\n";
 
   msg += "Sleep enabled: " + String(cfg.sleepEnabled ? "YES" : "NO") + "\n";
   msg += "Sleep mode: " + String(cfg.sleepDeep ? "DEEP" : "SOFT") + "\n";
@@ -393,6 +394,29 @@ static String htmlHeader(const char* title) {
   s += "                font-size: 1.8rem;\n";
   s += "            }\n";
   s += "        }\n";
+  s += "        /* Toast Notification */\n";
+  s += "        #toast {\n";
+  s += "            visibility: hidden;\n";
+  s += "            min-width: 250px;\n";
+  s += "            background-color: var(--primary);\n";
+  s += "            color: #fff;\n";
+  s += "            text-align: center;\n";
+  s += "            border-radius: var(--radius);\n";
+  s += "            padding: 16px;\n";
+  s += "            position: fixed;\n";
+  s += "            z-index: 1000;\n";
+  s += "            left: 50%;\n";
+  s += "            bottom: 30px;\n";
+  s += "            transform: translateX(-50%);\n";
+  s += "            box-shadow: 0 10px 30px rgba(0,0,0,0.2);\n";
+  s += "            font-weight: 600;\n";
+  s += "            transition: visibility 0s, opacity 0.5s linear;\n";
+  s += "            opacity: 0;\n";
+  s += "        }\n";
+  s += "        #toast.show {\n";
+  s += "            visibility: visible;\n";
+  s += "            opacity: 1;\n";
+  s += "        }\n";
   s += "    </style>\n";
   s += "</head>\n";
   return s;
@@ -464,12 +488,29 @@ static void handleConfigGet() {
   s += "      <div style=\"display:flex; gap:16px;\">\n";
   s += "        <div class=\"form-group\" style=\"flex:1;\">\n";
   s += "          <label>Buses (seg)</label>\n";
-  s += "          <input type=\"number\" name=\"busSecs\" value=\"" + String(cfg.uiBusMs / 1000UL) + "\">\n";
+  s += "          <input type=\"number\" name=\"busSecs\" id=\"busSecs\" value=\"" + String(cfg.uiBusMs / 1000UL) + "\" oninput=\"validateBus2()\">\n";
   s += "        </div>\n";
   s += "        <div class=\"form-group\" style=\"flex:1;\">\n";
   s += "          <label>Tiempo (seg)</label>\n";
   s += "          <input type=\"number\" name=\"weatherSecs\" value=\"" + String(cfg.uiWeatherMs / 1000UL) + "\">\n";
   s += "        </div>\n";
+  s += "      </div>\n";
+  s += "      <div class=\"form-group\">\n";
+  s += "        <label>Bus pág.2 (seg, 0=desactivado)</label>\n";
+  s += "        <input type=\"number\" name=\"busSecs2\" id=\"busSecs2\" value=\"" + String(cfg.uiBus2Ms / 1000UL) + "\" min=\"0\" oninput=\"validateBus2()\">\n";
+  s += "        <p id=\"bus2Error\" style=\"color:#e53e3e;display:none;font-size:0.85rem;margin:6px 0 0;padding:8px 12px;background:rgba(229,62,62,0.08);border-radius:8px;border:1px solid rgba(229,62,62,0.25);\">\n          ⚠️ Para aumentar el tiempo de la segunda pantalla, primero aumenta el tiempo dedicado a las pantallas de bus.\n        </p>\n";
+  s += "      </div>\n";
+  s += "    </div>\n";
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>\n";
+  s += "        <svg viewBox=\"0 0 24 24\"><path d=\"M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21ZM12 8.5C12 6.57 10.43 5 8.5 5C6.57 5 5 6.57 5 8.5C5 10.43 6.57 12 8.5 12C10.43 12 12 10.43 12 8.5Z\"></path></svg>\n";
+  s += "        Opciones Visuales\n";
+  s += "      </h3>\n";
+  s += "      <div class=\"form-group\">\n";
+  s += "        <label class=\"checkbox-wrapper\">\n";
+  s += "          <input type=\"checkbox\" name=\"combineArrivals\" <!-- checked_combine_arrivals --> >\n";
+  s += "          <span class=\"checkbox-label\">Agrupar tiempos (2 por fila)</span>\n";
+  s += "        </label>\n";
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <div class=\"card\">\n";
@@ -501,8 +542,55 @@ static void handleConfigGet() {
   s += "        </div>\n";
   s += "      </div>\n";
   s += "    </div>\n";
-  s += "    <button type=\"submit\" class=\"btn-submit\">Guardar Configuración 🌿</button>\n";
+  s += "    <button type=\"submit\" id=\"btnSubmit\" class=\"btn-submit\">Guardar Configuración 🌿</button>\n";
   s += "  </form>\n";
+  s += "  <div id=\"toast\">Configuración guardada correctamente ✨</div>\n";
+  s += "  <script>\n";
+  s += "    function validateBus2() {\n";
+  s += "      var bus = parseInt(document.getElementById('busSecs').value) || 0;\n";
+  s += "      var bus2 = parseInt(document.getElementById('busSecs2').value) || 0;\n";
+  s += "      var err = document.getElementById('bus2Error');\n";
+  s += "      var inp = document.getElementById('busSecs2');\n";
+  s += "      var btn = document.getElementById('btnSubmit');\n";
+  s += "      var invalid = bus2 > bus;\n";
+  s += "      err.style.display = invalid ? 'block' : 'none';\n";
+  s += "      inp.style.borderColor = invalid ? '#e53e3e' : '';\n";
+  s += "      inp.style.boxShadow = invalid ? '0 0 0 4px rgba(229,62,62,0.15)' : '';\n";
+  s += "      btn.disabled = invalid;\n";
+  s += "      btn.style.opacity = invalid ? '0.5' : '';\n";
+  s += "      btn.style.cursor = invalid ? 'not-allowed' : '';\n";
+  s += "    }\n";
+  s += "    // Initial validation on page load\n";
+  s += "    window.onload = validateBus2;\n";
+  s += "    document.querySelector('form').onsubmit = function(e) {\n";
+  s += "      e.preventDefault();\n";
+  s += "      var btn = document.getElementById('btnSubmit');\n";
+  s += "      var oldText = btn.innerText;\n";
+  s += "      btn.disabled = true;\n";
+  s += "      btn.innerText = 'Guardando...';\n";
+  s += "      var formData = new FormData(this);\n";
+  s += "      fetch('/config', {\n";
+  s += "        method: 'POST',\n";
+  s += "        body: formData\n";
+  s += "      }).then(res => {\n";
+  s += "        btn.disabled = false;\n";
+  s += "        btn.innerText = oldText;\n";
+  s += "        if (res.ok) {\n";
+  s += "          var toast = document.getElementById('toast');\n";
+  s += "          toast.className = 'show';\n";
+  s += "          setTimeout(function() { toast.className = toast.className.replace('show', ''); }, 3000);\n";
+  s += "        } else {\n";
+  s += "          alert('Error al guardar la configuración');\n";
+  s += "        }\n";
+  s += "      }).catch(err => {\n";
+  s += "        btn.disabled = false;\n";
+  s += "        btn.innerText = oldText;\n";
+  s += "        alert('Error de red al conectar con el dispositivo');\n";
+  s += "      });\n";
+  s += "    };\n";
+  s += "  </script>\n";
+  s.replace("<!-- checked_combine_arrivals -->", cfg.combineArrivals ? "checked" : "");
+  
   s += "  <div class=\"card\" style=\"margin-top:24px; text-align:center;\">\n";
   s += "    <h3 style=\"margin-bottom:12px; justify-content:center; border-bottom:none;\">Acciones del Sistema</h3>\n";
   s += "    <p style=\"font-size:0.9rem; color:var(--text-muted); margin-bottom:20px;\">Controles avanzados para el diagnóstico y estado de la pantalla.</p>\n";
@@ -626,11 +714,33 @@ static void handleConfigPost() {
     }
   }
 
+  if (server.hasArg("busSecs2")) {
+    int v = server.arg("busSecs2").toInt();
+    if (v < 0) v = 0;
+    // Restricción: bus2 no puede superar el tiempo total de bus
+    uint32_t maxBus2 = cfg.uiBusMs / 1000UL;
+    if ((uint32_t)v > maxBus2) v = (int)maxBus2;
+    uint32_t ms = (uint32_t)v * 1000UL;
+    if (ms != cfg.uiBus2Ms) {
+      cfg.uiBus2Ms = ms;
+      UI_BUS2_MS = ms;
+      uiChanged = true;
+      changed = true;
+    }
+  }
+
   bool newSleepEnabled = server.hasArg("sleepEnabled");
   if (newSleepEnabled != cfg.sleepEnabled) {
     cfg.sleepEnabled = newSleepEnabled;
     changed = true;
     sleepChanged = true;
+  }
+
+  bool newCombineArrivals = server.hasArg("combineArrivals");
+  if (newCombineArrivals != cfg.combineArrivals) {
+    cfg.combineArrivals = newCombineArrivals;
+    changed = true;
+    needRefreshNow = true;
   }
 
   if (server.hasArg("sleepMode")) {
@@ -667,28 +777,17 @@ static void handleConfigPost() {
   }
 
   if (stopChanged) weatherResetOnStopChange();
-  if (changed) saveConfig(cfg);
+  if (changed) {
+    saveConfig(cfg);
+    nextDataUpdate = 0; // Forzar actualización de datos en el siguiente loop
+    uiNextSwitchMs = 0;   // Forzar refresco de pantalla
+  }
 
   appState = haveStop(cfg) ? ST_RUNNING : ST_NEED_STOP;
 
   if (uiChanged) uiScheduleNext();
 
-  if (needRefreshNow) {
-    if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg)) {
-      (void)getEmtBoard();
-    }
-  }
-
-  String s = htmlHeader("OK");
-  s += "<body style=\"margin:40px; text-align:center; font-family:sans-serif;\">";
-  s += "<h2>Guardado</h2><p>Cambios aplicados correctamente.</p>";
-  if (sleepChanged && cfg.sleepEnabled && cfg.sleepDeep) {
-    s += "<p><b>Nota:</b> Si ahora mismo estás dentro de la ventana de sleep, el dispositivo entrará en deep sleep en pocos segundos.</p>";
-  }
-  s += "<p><a href=\"/\">Volver al inicio</a></p>";
-  s += htmlFooter();
-  server.send(200, contentTypeHtml, s);
-
+  server.send(200, contentTypeText, "OK");
   markHealthy();
 }
 

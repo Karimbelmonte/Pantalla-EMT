@@ -47,6 +47,11 @@ struct AppConfig {
 
   // UI preferences
   bool combineArrivals;
+
+  // Auto Brightness
+  bool autoBrightness;
+  int brightnessDay;
+  int brightnessNight;
 };
 
 extern AppConfig cfg;
@@ -103,6 +108,9 @@ struct WeatherState {
 
   unsigned long nextFetchMs = 0;
   unsigned long lastFetchMs = 0;
+
+  uint32_t sunrise = 0;
+  uint32_t sunset = 0;
 
   String lastError = "";
 };

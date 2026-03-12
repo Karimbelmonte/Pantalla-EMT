@@ -1,0 +1,63 @@
+Processing esp32dev (platform: https://github.com/pioarduino/platform-espressif32/releases/download/stable/platform-espressif32.zip; board: esp32dev; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32dev.html
+PLATFORM: Espressif 32 (55.3.37) > Espressif ESP32 Dev Module
+HARDWARE: ESP32 240MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - contrib-piohome @ 3.4.4 
+ - framework-arduinoespressif32 @ 3.3.7 
+ - framework-arduinoespressif32-libs @ 5.5.0+sha.87912cd291 
+ - tool-esptoolpy @ 5.1.2 
+ - toolchain-xtensa-esp-elf @ 14.2.0+20251107
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 47 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- WiFiManager @ 2.0.17
+|-- U8g2 @ 2.36.5
+|-- ArduinoJson @ 7.2.0
+|-- ESPmDNS @ 3.3.7
+|-- FS @ 3.3.7
+|-- HTTPClient @ 3.3.7
+|-- HTTPUpdate @ 3.3.7
+|-- LittleFS @ 3.3.7
+|-- SPI @ 3.3.7
+|-- WebServer @ 3.3.7
+|-- WiFi @ 3.3.7
+|-- NetworkClientSecure @ 3.3.7
+|-- stationData
+Building in release mode
+Compiling .pio/build/esp32dev/src/web_server.cpp.o
+Linking .pio/build/esp32dev/firmware.elf
+                            Memory Type Usage Summary                             
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Memory Type/Section ┃ Used [bytes] ┃ Used [%] ┃ Remain [bytes] ┃ Total [bytes] ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ Flash Code          │       969884 │          │                │               │
+│    .text            │       969884 │          │                │               │
+│ Flash Data          │       252400 │          │                │               │
+│    .rodata          │       252144 │          │                │               │
+│    .appdesc         │          256 │          │                │               │
+│ IRAM                │        95827 │    73.11 │          35245 │        131072 │
+│    .text            │        94799 │    72.33 │                │               │
+│    .vectors         │         1028 │     0.78 │                │               │
+│ DRAM                │        60865 │    48.86 │          63715 │        124580 │
+│    .bss             │        34664 │    27.82 │                │               │
+│    .data            │        26201 │    21.03 │                │               │
+└─────────────────────┴──────────────┴──────────┴────────────────┴───────────────┘
+Total image size: 1344312 bytes (.bin may be padded larger)
+Note: The reported total sizes may be smaller than those in the technical reference manual due to reserved memory and application configuration. The total flash size available for the application is not included by default, as it cannot be reliably determined due to the presence of other data like the bootloader, partition table, and application partition size.
+Retrieving maximum program size .pio/build/esp32dev/firmware.elf
+Checking size .pio/build/esp32dev/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [==        ]  18.6% (used 60868 bytes from 327680 bytes)
+Flash: [=======   ]  68.4% (used 1344056 bytes from 1966080 bytes)
+Building .pio/build/esp32dev/firmware.bin
+esptool v5.1.2
+Creating ESP32 image...
+Merged 2 ELF sections.
+Successfully created ESP32 image.
+========================= [SUCCESS] Took 22.48 seconds =========================

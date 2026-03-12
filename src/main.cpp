@@ -180,6 +180,10 @@ bool loadConfig(AppConfig& out) {
   out.sleepEnds     = doc["sleepEnds"]     | 6;
   out.combineArrivals = doc["combineArrivals"] | true;
 
+  out.autoBrightness = doc["autoBrightness"] | false;
+  out.brightnessDay  = doc["brightnessDay"]  | 128;
+  out.brightnessNight = doc["brightnessNight"] | 20;
+
   // sane defaults
   if (out.sleepStarts > 23) out.sleepStarts = 0;
   if (out.sleepEnds > 23) out.sleepEnds = 6;
@@ -204,6 +208,10 @@ bool saveConfig(const AppConfig& in) {
   doc["sleepStarts"]   = in.sleepStarts;
   doc["sleepEnds"]     = in.sleepEnds;
   doc["combineArrivals"] = in.combineArrivals;
+
+  doc["autoBrightness"] = in.autoBrightness;
+  doc["brightnessDay"]  = in.brightnessDay;
+  doc["brightnessNight"] = in.brightnessNight;
 
   File f = LittleFS.open(CFG_PATH, "w");
   if (!f) return false;
@@ -864,6 +872,9 @@ static bool weatherFetchCurrent(double lat, double lon) {
       weather.desc[sizeof(weather.desc) - 1] = '\0';
       strncpy(weather.icon, i, sizeof(weather.icon) - 1);
       weather.icon[sizeof(weather.icon) - 1] = '\0';
+
+      weather.sunrise = doc["sys"]["sunrise"] | 0;
+      weather.sunset  = doc["sys"]["sunset"]  | 0;
     },
     httpCode
   );
@@ -1910,6 +1921,21 @@ void loop() {
 
   // reloj
   drawClock(true);
+
+  // Auto Brightness logic
+  if (cfg.autoBrightness && weather.sunrise > 0 && weather.sunset > 0) {
+    time_t now = time(nullptr);
+    int target;
+    if (now >= (time_t)weather.sunrise && now < (time_t)weather.sunset) {
+      target = cfg.brightnessDay;
+    } else {
+      target = cfg.brightnessNight;
+    }
+    if (brightness != target) {
+      brightness = target;
+      u8g2.setContrast(brightness);
+    }
+  }
 
   long delayMs = 25 - (long)(millis() - refreshTimer);
   if (delayMs > 0) delay((uint32_t)delayMs);

@@ -9,6 +9,9 @@ extern const int WDT_TIMEOUT_S;
 extern const unsigned long SOFT_WDT_MS;
 extern unsigned long lastHealthyTickMs;
 
+static String htmlHeader(const char* title);
+static String htmlFooter();
+
 static bool isInSleepWindow(uint8_t h, uint8_t startH, uint8_t endH) {
   if (startH == endH) return true;
   if (startH > endH) return (h >= startH) || (h < endH);
@@ -44,64 +47,71 @@ static void sendResponse(int code, const String& msg) {
 }
 
 static void handleInfo() {
-  unsigned long uptime = millis();
-  char sysUptime[64];
-  int days = uptime / 86400000UL;
-  int hours = (uptime % 86400000UL) / 3600000UL;
-  int minutes = ((uptime % 86400000UL) % 3600000UL) / 60000UL;
-  snprintf(sysUptime, sizeof(sysUptime), "%d days, %d hrs, %d min", days, hours, minutes);
+  uint32_t uptime = millis();
+  int d = uptime / 86400000UL;
+  int h = (uptime % 86400000UL) / 3600000UL;
+  int m = ((uptime % 86400000UL) % 3600000UL) / 60000UL;
+  char uptimeStr[64];
+  snprintf(uptimeStr, sizeof(uptimeStr), "%dd %dh %dm", d, h, m);
 
-  String msg;
-  msg += "Pantalla EMT\n";
-  msg += "Firmware: v" + String(VERSION_MAJOR) + "." + String(VERSION_MINOR) + "\n";
-  msg += "Uptime: " + String(sysUptime) + "\n";
-  msg += "WiFi: " + String(WiFi.SSID()) + "\n";
-  msg += "IP: " + WiFi.localIP().toString() + "\n";
-  msg += "RSSI: " + String(WiFi.RSSI()) + " dB\n";
-  msg += "State: " + String((int)appState) + "\n";
-  msg += "Screen: " + String((uiScreen == UI_BUS) ? "BUS" : "WEATHER") + "\n";
-  msg += "StopName: " + cfg.emtStopName + "\n";
-  msg += "StopId: " + cfg.emtStopId + "\n";
-  msg += "Brightness: " + String(brightness) + "\n";
-  msg += "EMT email set: " + String(cfg.emtEmail.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "EMT pass set: " + String(cfg.emtPassword.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "OpenWeather key set: " + String(cfg.weatherApiKey.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "UI BUS ms: " + String(cfg.uiBusMs) + "\n";
-  msg += "UI WEATHER ms: " + String(cfg.uiWeatherMs) + "\n";
-  msg += "Combine arrivals: " + String(cfg.combineArrivals ? "YES" : "NO") + "\n";
-
-  msg += "Sleep enabled: " + String(cfg.sleepEnabled ? "YES" : "NO") + "\n";
-  msg += "Sleep mode: " + String(cfg.sleepDeep ? "DEEP" : "SOFT") + "\n";
-  msg += "Sleep window: " + String(cfg.sleepStarts) + " -> " + String(cfg.sleepEnds) + "\n";
+  String s = htmlHeader("Información del Sistema");
+  s += "<body>\n";
+  s += "  <div class=\"container\">\n";
+  s += "    <div class=\"header\">\n";
+  s += "      <h1>Estado del Sistema ⚙️</h1>\n";
+  s += "    </div>\n";
   
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo)) {
-    msg += "Local time: " + String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min) + ":" + String(timeinfo.tm_sec) + "\n";
-    bool inWin = isInSleepWindow((uint8_t)timeinfo.tm_hour, cfg.sleepStarts, cfg.sleepEnds);
-    msg += "In sleep window: " + String(inWin ? "YES" : "NO") + "\n";
-    uint32_t secs = 0;
-    if (inWin && computeSecondsUntilWake(secs)) {
-      msg += "Seconds until wake: " + String(secs) + "\n";
-    }
-  } else {
-    msg += "Local time: (NTP unavailable)\n";
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>General</h3>\n";
+  s += "      <p><b>WiFi:</b> " + String(wifiConnected ? "Conectado ✅" : "Desconectado ❌") + "</p>\n";
+  s += "      <p><b>RSSI:</b> " + String(WiFi.RSSI()) + " dB</p>\n";
+  s += "      <p><b>Uptime:</b> " + String(uptimeStr) + "</p>\n";
+  s += "      <p><b>Estado App:</b> " + String((appState == ST_RUNNING) ? "Ejecutando" : (appState == ST_NEED_STOP ? "Necesita Parada" : "Iniciando")) + "</p>\n";
+  s += "      <p><b>Ciclo UI:</b> " + String(uiScreen == UI_BUS ? "Bus 1" : (uiScreen == UI_WEATHER ? "Clima" : "Bus 2")) + "</p>\n";
+  s += "      <p><b>Brillo Actual:</b> " + String(brightness) + "</p>\n";
+  s += "    </div>\n";
+
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>EMT Madrid</h3>\n";
+  s += "      <p><b>Parada:</b> " + cfg.emtStopId + " (" + cfg.emtStopName + ")</p>\n";
+  s += "      <p><b>Token:</b> " + String(emtAccessToken.isEmpty() ? "No disponible ❌" : "Activo ✅") + "</p>\n";
+  if (!emtLastErrorMsg.isEmpty()) {
+    s += "      <p style=\"color: #e74c3c;\"><b>Último Error:</b> " + emtLastErrorMsg + "</p>\n";
   }
+  s += "    </div>\n";
 
-  msg += "Weather coords: " + String(weather.hasCoords ? "YES" : "NO") + "\n";
-  if (weather.hasCoords) msg += "Lat: " + String(weather.lat, 6) + " Lon: " + String(weather.lon, 6) + "\n";
-  msg += "Weather data: " + String(weather.hasData ? "YES" : "NO") + "\n";
-  if (!weather.lastError.isEmpty()) msg += "Weather err: " + weather.lastError + "\n";
-  msg += "Success: " + String(dataLoadSuccess) + "\n";
-  msg += "Failures: " + String(dataLoadFailure) + "\n";
-  msg += "Services: " + String(station.numServices) + "\n";
-  if (messages.numMessages) msg += "Message: " + String(messages.messages[0]) + "\n";
-  if (!emtLastErrorMsg.isEmpty()) msg += "EMT Error: " + emtLastErrorMsg + "\n";
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>OpenWeather</h3>\n";
+  s += "      <p><b>Datos Clima:</b> " + String(weather.hasData ? "Disponibles ✅" : "No disponibles ❌") + "</p>\n";
+  if (weather.sunrise > 0) {
+    char buf[64];
+    time_t sr = (time_t)weather.sunrise;
+    struct tm *tm_sr = localtime(&sr);
+    strftime(buf, sizeof(buf), "%H:%M:%S", tm_sr);
+    s += "      <p><b>Amanecer:</b> " + String(buf) + "</p>\n";
+    
+    time_t ss = (time_t)weather.sunset;
+    struct tm *tm_ss = localtime(&ss);
+    strftime(buf, sizeof(buf), "%H:%M:%S", tm_ss);
+    s += "      <p><b>Atardecer:</b> " + String(buf) + "</p>\n";
+  }
+  if (!weather.lastError.isEmpty()) {
+    s += "      <p style=\"color: #e74c3c;\"><b>Error Clima:</b> " + weather.lastError + "</p>\n";
+  }
+  s += "    </div>\n";
 
-  msg += "WDT timeout (s): " + String(WDT_TIMEOUT_S) + "\n";
-  msg += "SoftWDT (ms): " + String(SOFT_WDT_MS) + "\n";
-  msg += "Last healthy (ms ago): " + String((lastHealthyTickMs == 0) ? -1 : (long)(millis() - lastHealthyTickMs)) + "\n";
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>Estadísticas</h3>\n";
+  s += "      <p><b>Cargas OK:</b> " + String(dataLoadSuccess) + "</p>\n";
+  s += "      <p><b>Fallos:</b> " + String(dataLoadFailure) + "</p>\n";
+  s += "      <p><b>Última Carga:</b> " + String((millis() - lastDataLoadTime)/1000) + "s agó</p>\n";
+  s += "    </div>\n";
 
-  sendResponse(200, msg);
+  s += "    <a href=\"/\" class=\"btn-submit\" style=\"text-decoration:none; display:block; text-align:center; margin-top:20px;\">Volver al Inicio</a>\n";
+  
+  s += "  </div>\n";
+  s += htmlFooter();
+  server.send(200, contentTypeHtml, s);
 }
 
 static void handleReboot() {
@@ -542,6 +552,28 @@ static void handleConfigGet() {
   s += "        </div>\n";
   s += "      </div>\n";
   s += "    </div>\n";
+  s += "    <div class=\"card\">\n";
+  s += "      <h3>\n";
+  s += "        <svg viewBox=\"0 0 24 24\"><path d=\"M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z\"></path></svg>\n";
+  s += "        Auto Brillo (Sunrise/Sunset)\n";
+  s += "      </h3>\n";
+  s += "      <div class=\"form-group\">\n";
+  s += "        <label class=\"checkbox-wrapper\">\n";
+  s += "          <input type=\"checkbox\" name=\"autoBrightness\"" + String(cfg.autoBrightness ? " checked" : "") + ">\n";
+  s += "          <span class=\"checkbox-label\">Habilitar Brillo Automático</span>\n";
+  s += "        </label>\n";
+  s += "      </div>\n";
+  s += "      <div style=\"display:flex; gap:16px;\">\n";
+  s += "        <div class=\"form-group\" style=\"flex:1;\">\n";
+  s += "          <label>Brillo Día (1-255)</label>\n";
+  s += "          <input type=\"number\" name=\"brightnessDay\" value=\"" + String(cfg.brightnessDay) + "\" min=\"1\" max=\"255\">\n";
+  s += "        </div>\n";
+  s += "        <div class=\"form-group\" style=\"flex:1;\">\n";
+  s += "          <label>Brillo Noche (1-255)</label>\n";
+  s += "          <input type=\"number\" name=\"brightnessNight\" value=\"" + String(cfg.brightnessNight) + "\" min=\"1\" max=\"255\">\n";
+  s += "        </div>\n";
+  s += "      </div>\n";
+  s += "    </div>\n";
   s += "    <button type=\"submit\" id=\"btnSubmit\" class=\"btn-submit\">Guardar Configuración 🌿</button>\n";
   s += "  </form>\n";
   s += "  <div id=\"toast\">Configuración guardada correctamente ✨</div>\n";
@@ -727,6 +759,24 @@ static void handleConfigPost() {
       uiChanged = true;
       changed = true;
     }
+  }
+
+  bool newAutoBrightness = server.hasArg("autoBrightness");
+  if (newAutoBrightness != cfg.autoBrightness) {
+    cfg.autoBrightness = newAutoBrightness;
+    changed = true;
+  }
+
+  if (server.hasArg("brightnessDay")) {
+    int v = server.arg("brightnessDay").toInt();
+    if (v < 1) v = 1; if (v > 255) v = 255;
+    if (v != cfg.brightnessDay) { cfg.brightnessDay = v; changed = true; }
+  }
+
+  if (server.hasArg("brightnessNight")) {
+    int v = server.arg("brightnessNight").toInt();
+    if (v < 1) v = 1; if (v > 255) v = 255;
+    if (v != cfg.brightnessNight) { cfg.brightnessNight = v; changed = true; }
   }
 
   bool newSleepEnabled = server.hasArg("sleepEnabled");

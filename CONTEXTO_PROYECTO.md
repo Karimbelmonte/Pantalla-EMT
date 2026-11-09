@@ -1,6 +1,6 @@
 # Pantalla EMT contexto técnico del proyecto
 
-Revisión: **9 de noviembre de 2026**. Versión: **0.13.2**. Las correcciones se han implementado y probado localmente por fases; la instalación y validación física están pendientes. La revisión WiFi y el diagnóstico de reinicios se describen en [WIFI_REINICIOS.md](validation/2026-11-09/WIFI_REINICIOS.md). Consultar el [informe de validación](validation/2026-11-09/REPORT.md) y el [plan](PLAN_CORRECCIONES.md).
+Revisión: **9 de noviembre de 2026**. Versión: **0.13.3**. Las correcciones se han implementado y probado localmente por fases; la instalación USB, conservación de configuración, apertura automática del portal y conexión/web están comprobadas; la transferencia OTA física y estabilidad prolongada siguen pendientes. La revisión WiFi y el diagnóstico de reinicios se describen en [WIFI_REINICIOS.md](validation/2026-11-09/WIFI_REINICIOS.md). Consultar el [informe de validación](validation/2026-11-09/REPORT.md) y el [plan](PLAN_CORRECCIONES.md).
 
 ## Orientación rápida
 
@@ -15,7 +15,7 @@ Leer primero `platformio.ini`, `include/globals.h`, `include/config_model.h`, `s
 | `platformio.ini` | Plataforma pioarduino **55.03.37** fijada, Arduino **3.3.7**, ESP32 a 240 MHz. Entornos `esp32dev` y `esp32dev_ota`. |
 | `src/main.cpp` | Arranque, bucle, consultas EMT/OpenWeather, aplicación de configuración, dibujo, descanso y watchdog de tarea. |
 | `src/web_server.cpp` | Única implementación de rutas HTTP y de la web activa. |
-| `src/wifi_connection.cpp`, `include/wifi_recovery_policy.h` | Arranque sin bloqueo, reintentos con red guardada y portal solicitado explícitamente. |
+| `src/wifi_connection.cpp`, `include/wifi_recovery_policy.h` | Arranque sin bloqueo, reintentos con red guardada y portal automático tras 60 s sin conexión, además del acceso manual. |
 | `src/boot_diagnostics.cpp`, `include/boot_trace.h` | Motivo de reset y última operación en SRAM RTC, sin escritura continua de flash. |
 | `src/config.cpp` | Lectura y guardado verificado en LittleFS; diagnóstico de almacenamiento. |
 | `src/secure_client.cpp` | Configuración TLS y bundle CA incluido en ESP-IDF. Requiere hora válida. |
@@ -45,7 +45,7 @@ Leer primero `platformio.ini`, `include/globals.h`, `include/config_model.h`, `s
 
 La OLED usa SPI hardware, CS GPIO26, DC GPIO5 y sin pin de reset. El README de origen documenta CLK GPIO18, DIN GPIO23 y alimentación a 3,3 V. El ajuste físico depende del modelo de placa y pantalla.
 
-`setup()` inicia serie a 115200 y OLED, monta LittleFS **sin formatear automáticamente**, carga configuración, conecta WiFi con WiFiManager y publica `pantalla-emt.local`. El punto de acceso de configuración se llama `Pantalla EMT`; se abre automáticamente solo si no hay SSID configurado. Con red guardada se reintenta cada 30 s sin reiniciar. El botón web «Cambiar red WiFi» o BOOT/GPIO0 mantenido 3 s tras arrancar abre el portal manualmente. Usa `europe.pool.ntp.org` y zona horaria española con cambio estacional.
+`setup()` inicia serie a 115200 y OLED, monta LittleFS **sin formatear automáticamente**, carga configuración, conecta WiFi con WiFiManager y publica `pantalla-emt.local`. El punto de acceso de configuración se llama `Pantalla EMT`; se abre inmediatamente si no hay SSID configurado y, desde 0.13.3, después de 60 s sin conectar si hay red guardada. Antes de abrirlo se reintenta cada 30 s sin reiniciar. El botón web «Cambiar red WiFi» o BOOT/GPIO0 mantenido 3 s tras arrancar abre el portal manualmente. Usa `europe.pool.ntp.org` y zona horaria española con cambio estacional.
 
 Sin parada entra en `ST_NEED_STOP`; con parada, en `ST_RUNNING`. El servidor escucha en el puerto 80. El watchdog de tarea se configura a 15 segundos y se alimenta nominalmente cada 250 ms; no se reinicia por el mero hecho de no recibir datos remotos. `/info` distingue datos, errores y mayor intervalo observado del bucle, e informa del motivo de reset, última operación y estado WiFi al arrancar.
 
@@ -79,7 +79,7 @@ El descanso suave mantiene la web y suspende consultas normales; el profundo apa
 | POST `/config` | Guardar, verificar y aplicar. Devuelve 500 si falla almacenamiento. El formulario completo incluye `fullForm=1`; peticiones parciales conservan casillas omitidas. |
 | GET `/info` | Versión, OTA, almacenamiento, WiFi, datos, esperas y diagnóstico del bucle. |
 | GET `/brightness?b=80` | Brillo temporal 1–255; no modifica la preferencia manual guardada. |
-| POST `/wifi/setup` | Abre el portal manual sin borrar la red previa. Se cierra a los 3 min si había credenciales. |
+| POST `/wifi/setup` | Abre el portal manual sin borrar la red previa. Se cierra tras 3 min sin clientes si había credenciales. |
 | GET `/reboot` | Reiniciar. Puede comprobar OTA si se instaló el perfil que la habilita. |
 | GET `/sleepnow` | Solicitar descanso profundo cuando está habilitado. |
 
@@ -109,3 +109,7 @@ Las suites nativas y las compilaciones no sustituyen las comprobaciones de OLED,
 ## Actualización manual por WiFi (0.13.2)
 
 GET `/update` muestra estado y formularios; POST `/update/check` consulta y POST `/update/install` confirma la versión exacta. Ambos perfiles admiten esta operación. `processManualUpdates()` se ejecuta antes de la espera por parada y del descanso para atender solicitudes sin configurar EMT. La búsqueda no instala; la instalación reutiliza TLS, tamaño y SHA-256 del backend OTA. Ver [OTA_WIFI.md](validation/2026-11-09/OTA_WIFI.md) para resultados y límites.
+
+## Acceso WiFi sin BOOT (0.13.3)
+
+La placa del usuario solo tiene RST. `WifiRecovery` conserva credenciales y abre configuración tras 60 s sin conexión; `PortalWindow` permite 10 min en automático, 3 min en manual y extiende el plazo mientras hay clientes AP. Al cerrar se restaura la conexión de estación y se concede un nuevo minuto antes de reabrir. Sin WiFi no se ejecuta el descanso programado; el portal se dibuja con contraste legible. Este comportamiento sustituye la política de 0.13.1–0.13.2 de no abrir nunca un portal con SSID guardado. Ver [WIFI_SIN_BOOT.md](validation/2026-11-09/WIFI_SIN_BOOT.md).

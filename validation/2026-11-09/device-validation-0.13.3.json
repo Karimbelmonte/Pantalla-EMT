@@ -1,0 +1,22 @@
+{
+  "version": "0.13.3",
+  "native_suites_passed": 8,
+  "build_profiles_passed": [
+    "esp32dev",
+    "esp32dev_ota"
+  ],
+  "usb_install_hash_verified": true,
+  "nvs_and_filesystem_preserved_byte_for_byte_before_boot": true,
+  "automatic_portal_confirmed": true,
+  "normal_wifi_web_confirmed": true,
+  "user_confirmed_connection": true,
+  "physical_boot_button_used": false,
+  "ota_transfer_on_device_validated": false,
+  "long_term_stability_validated": false,
+  "startup_warnings": [
+    "Watchdog already initialized; code reconfigures it.",
+    "One watchdog feed reported task not found.",
+    "One WiFi retry reported station already connecting."
+  ],
+  "source_of_validation": "USB programming log, pre/post flash readback, serial boot log, host AP scan and HTTP /info; device-specific identifiers and configuration backups are not distributed."
+}

@@ -2,14 +2,14 @@
 
 Firmware para una pantalla OLED de llegadas de EMT Madrid y meteorología, basado en ESP32 y PlatformIO.
 
-Consulta [CONTEXTO_PROYECTO.md](CONTEXTO_PROYECTO.md) para entender la estructura, localizar el código activo, compilar y conocer las particularidades del estado actual.
+**Versión 0.13.3:** permite configurar otra WiFi sin BOOT. Si no consigue conectar a la red guardada durante un minuto, abre **Pantalla EMT**; conecta el móvil y visita **http://192.168.4.1**. La configuración EMT se conserva.
 
-El [plan de correcciones](PLAN_CORRECCIONES.md) recoge las fases de trabajo, las pruebas y los criterios de aceptación.
+[Descargar firmware 0.13.3](https://github.com/Karimbelmonte/Pantalla-EMT/releases/download/v0.13.3/firmware.bin). Desde 0.13.2, usar **Actualizar por WiFi** en la web de la pantalla. El perfil predeterminado mantiene la instalación automática desactivada.
 
-Correcciones de **0.13.2**: [resultados y pruebas pendientes](validation/2026-11-09/REPORT.md). El perfil predeterminado compila con OTA automática desactivada.
+- [Guía de operación](README_KARIM.md).
+- [Contexto técnico del proyecto](CONTEXTO_PROYECTO.md).
+- [Plan de correcciones](PLAN_CORRECCIONES.md).
+- [Configuración WiFi sin BOOT y validación 0.13.3](validation/2026-11-09/WIFI_SIN_BOOT.md).
+- [Actualización manual por WiFi](validation/2026-11-09/OTA_WIFI.md).
 
-La [revisión de WiFi y reinicios](validation/2026-11-09/WIFI_REINICIOS.md) añade reconexión sin reconfiguración automática y diagnóstico de la causa del reset.
-
-La [actualización manual por WiFi](validation/2026-11-09/OTA_WIFI.md) permite buscar y confirmar una nueva versión desde `/update` en ambos perfiles.
-
-[Descargar firmware 0.13.2](https://github.com/Karimbelmonte/Pantalla-EMT/releases/download/v0.13.2/firmware.bin). Las pruebas de hardware siguen pendientes; ver las notas de la release.
+Instalación USB, conservación de configuración, apertura automática del portal y conexión/web comprobadas. Transferencia OTA real y estabilidad prolongada pendientes; consultar las notas de la release.

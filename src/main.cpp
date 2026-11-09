@@ -235,6 +235,8 @@ static void drawStartupScreen(const char* msg) {
 }
 
 static void drawSetupScreen() {
+  u8g2.setPowerSave(0);
+  u8g2.setContrast(128); // keep recovery instructions readable after soft sleep
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
   centreText("Configurar WiFi", 0);
@@ -990,7 +992,7 @@ static void drawEmtPage(int page) {
     centreText("Configura en web (/)", 40);
   } else if (station.numServices == 0) {
     centreText(!wifiConnected ? "WiFi: reintentando conexion" : (messages.numMessages > 0 ? messages.messages[0] : "Sin estimaciones"), 18);
-    if (!wifiConnected) centreText("BOOT 3s: configurar WiFi", 36);
+    if (!wifiConnected) centreText("Config WiFi tras 1 min", 36);
   } else {
     emt::BoardRow rows[MAXBOARDSERVICES];
     int count = emt::buildRows(station.service, station.numServices, cfg.combineArrivals,
@@ -1084,6 +1086,7 @@ static void updateMyMdns(const char* hostname) {
 // ---------------------- Setup / Loop ----------------------
 void setup() {
   Serial.begin(115200);
+  Serial.printf("Firmware %s\n", FIRMWARE_VERSION);
   beginBootDiagnostics();
   // OLED init
   u8g2.begin();
@@ -1150,7 +1153,7 @@ void setup() {
     if (!wifiPortalActive()) drawNeedStopScreen();
   } else {
     appState = ST_RUNNING;
-    if (!wifiPortalActive()) drawStartupScreen(wifiConnected ? "Listo" : "WiFi: reintentando sin borrar");
+    if (!wifiPortalActive()) drawStartupScreen(wifiConnected ? "Listo" : "Config WiFi tras 1 min sin red");
     delay(300);
 
     nextDataUpdate = millis();
@@ -1208,7 +1211,7 @@ void loop() {
 
   // -------- Sleep logic (soft/deep) --------
   bool snoozing = isSnoozing();
-  if (snoozing) {
+  if (snoozing && wifiConnected) {
     recordStage(emt::Stage::Sleep);
     if (cfg.sleepDeep) {
       // Intenta deep sleep solo si tienes hora válida

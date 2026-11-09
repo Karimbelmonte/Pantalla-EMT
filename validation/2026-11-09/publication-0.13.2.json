@@ -1,0 +1,17 @@
+{
+  "version": "0.13.2",
+  "published": true,
+  "release_id": 439032176,
+  "release_url": "https://github.com/Karimbelmonte/Pantalla-EMT/releases/tag/v0.13.2",
+  "published_at": "2026-11-09T11:10:43Z",
+  "latest_verified": true,
+  "anonymous_download_verified": true,
+  "source_branch": "codex/release-0.13.2",
+  "asset_name": "firmware.bin",
+  "asset_url": "https://github.com/Karimbelmonte/Pantalla-EMT/releases/download/v0.13.2/firmware.bin",
+  "bytes": 1437488,
+  "sha256": "6582ac5835dfad9e9ff7a1d4b18b0a4f26033dd8015462945089a04b5f59f76b",
+  "automatic_ota": false,
+  "hardware_validated": false,
+  "source_commit": "7ef554502f7f7fd63e082e0a824647b4a7b37588"
+}

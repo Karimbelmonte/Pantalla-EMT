@@ -108,3 +108,11 @@ La candidata 0.13.1 añade recuperación WiFi sin reinicio, portal explícito y 
 ## Seguimiento: descarga por WiFi
 
 La candidata 0.13.2 incorpora búsqueda y confirmación de instalación desde la web, también con OTA automática desactivada. Ver [OTA_WIFI.md](validation/2026-11-09/OTA_WIFI.md). La publicación y la prueba de transferencia real al ESP32 siguen separadas de las pruebas locales.
+
+## Publicación autorizada de 0.13.2
+
+Publicada el 9 de noviembre de 2026 como última release estable. Fuentes en `codex/release-0.13.2`, etiqueta `v0.13.2`; descarga anónima y SHA-256 verificados. Ver [registro](validation/2026-11-09/publication-0.13.2.json). Las pruebas físicas y la causa de los reinicios siguen pendientes.
+
+## Recuperación WiFi en placa sin BOOT
+
+El usuario confirma que la placa solo tiene RST y solicita configurar otra red sin BOOT ni acceso web previo. Se añade en 0.13.3 un portal automático tras 60 s sin conexión, conservando credenciales. Validación de política, compilación y comprobación USB/AP por separado: [WIFI_SIN_BOOT.md](validation/2026-11-09/WIFI_SIN_BOOT.md).

@@ -16,8 +16,7 @@ static emt::WifiCredentials credentialsOnBoot=emt::WifiCredentials::Unknown;
 static std::atomic<uint32_t> disconnections{0};
 static std::atomic<uint16_t> lastDisconnect{0};
 static bool manualRequested=false, applicationServerReady=false;
-static bool timedPortal=false;
-static uint32_t portalDeadline=0;
+static emt::PortalWindow portalWindow;
 static void (*showPortal)()=nullptr;
 
 static emt::WifiCredentials readCredentials() {
@@ -50,9 +49,14 @@ static void openPortal(bool manual) {
   // active driver's storage explicitly after possible STA/AP reinitialization.
   esp_err_t storageResult=esp_wifi_set_storage(WIFI_STORAGE_FLASH);
   if(storageResult!=ESP_OK) Serial.printf("WiFi storage selection failed: %d\n",storageResult);
-  timedPortal=manual && credentials!=emt::WifiCredentials::Missing;
-  portalDeadline=millis()+180000;
-  if(!wifiPortalActive() && applicationServerReady) server.begin();
+  portalWindow.start(millis(),credentials!=emt::WifiCredentials::Missing,manual);
+  if(wifiPortalActive()) {
+    Serial.printf("WiFi setup portal open (%s): Pantalla EMT / 192.168.4.1; saved configuration retained\n",
+      manual ? "requested" : "automatic");
+  } else {
+    recovery.portalClosed(millis());
+    if(applicationServerReady) server.begin();
+  }
 }
 void beginWifi(void (*portalScreen)()) {
   showPortal=portalScreen;
@@ -101,16 +105,18 @@ void wifiTick() {
     esp_task_wdt_reset();
     manager.process(); // save-connect is bounded to one 5-second attempt
     esp_task_wdt_reset();
-    if(timedPortal && emt::due(millis(),portalDeadline) && wifiPortalActive()) manager.stopConfigPortal();
+    if(wifiPortalActive() && portalWindow.expired(millis(),WiFi.softAPgetStationNum()>0)) manager.stopConfigPortal();
     if(!wifiPortalActive()) {
       credentials=readCredentials();
-      recovery.retry.reset();
+      recovery.portalClosed(millis());
+      WiFi.setAutoReconnect(true);
+      Serial.println("WiFi setup portal closed; resuming station connection");
       if(applicationServerReady) server.begin();
     }
   } else {
     wifiConnected=WiFi.status()==WL_CONNECTED;
     auto action=recovery.step(millis(),credentials,wifiConnected,false,manual);
-    if(action==emt::WifiAction::OpenPortal) openPortal(true);
+    if(action==emt::WifiAction::OpenPortal) openPortal(manual);
     else if(action==emt::WifiAction::ConnectSaved) {
       // Reconnect with the driver's existing configuration; never erase it.
       WiFi.reconnect();

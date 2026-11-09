@@ -1,0 +1,22 @@
+{
+  "version": "0.13.3",
+  "published": false,
+  "artifacts": [
+    {
+      "environment": "esp32dev",
+      "path": "validation/2026-11-09/firmware/0.13.3/esp32dev/firmware.bin",
+      "bytes": 1437872,
+      "sha256": "852e3422ff83eb524dc1d4afd8248060f413b36073645c50bda2623afcaac3a4",
+      "ram_bytes": 61724,
+      "application_bytes": 1437360
+    },
+    {
+      "environment": "esp32dev_ota",
+      "path": "validation/2026-11-09/firmware/0.13.3/esp32dev_ota/firmware.bin",
+      "bytes": 1437968,
+      "sha256": "242a40a83d526f95c9ba76934c967359b7fdc5fe5cc85c04269318d6946ca513",
+      "ram_bytes": 61724,
+      "application_bytes": 1437456
+    }
+  ]
+}

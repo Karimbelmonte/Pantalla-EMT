@@ -1,6 +1,6 @@
 # Operación de Pantalla EMT
 
-Firmware 0.13.2. Diagnóstico de reinicios en [WIFI_REINICIOS.md](validation/2026-11-09/WIFI_REINICIOS.md). Estructura en [CONTEXTO_PROYECTO.md](CONTEXTO_PROYECTO.md); pruebas realizadas y pendientes en [el informe](validation/2026-11-09/REPORT.md).
+Firmware 0.13.3. Diagnóstico de reinicios en [WIFI_REINICIOS.md](validation/2026-11-09/WIFI_REINICIOS.md). Estructura en [CONTEXTO_PROYECTO.md](CONTEXTO_PROYECTO.md); pruebas realizadas y pendientes en [el informe](validation/2026-11-09/REPORT.md).
 
 ## Preparación y compilación
 
@@ -31,9 +31,15 @@ pio run -e esp32dev -t upload
 pio device monitor -b 115200
 ```
 
-Si hay varios dispositivos, especificar el puerto mediante `--upload-port`. Si no conecta el bootloader, utilizar BOOT y EN/RESET según la placa. La subida al dispositivo y la prueba física no se realizaron en esta revisión.
+Si hay varios dispositivos, especificar el puerto mediante `--upload-port`. La placa del usuario solo tiene RST y permite carga por el reinicio automático del adaptador USB. No es necesario BOOT para configurar WiFi. Los registros de instalación están en `validation/2026-11-09/`.
 
-WiFiManager crea el punto de acceso `Pantalla EMT` cuando no hay red configurada. Si hay red guardada pero no conecta, sigue reintentando sin reiniciar ni pedir de nuevo la contraseña. Para cambiar de red, usar «Cambiar red WiFi» en la web o mantener BOOT/GPIO0 durante 3 s después de arrancar la aplicación (si la placa dispone de ese botón). Después abrir `http://pantalla-emt.local/` o la IP asignada. Completar parada, credenciales EMT y, opcionalmente, clave OpenWeather.
+Si no hay red configurada, WiFiManager crea inmediatamente el punto de acceso **Pantalla EMT**. Desde 0.13.3, si hay una red guardada pero no consigue conectarse durante **60 segundos**, también abre ese punto de acceso sin borrar los datos anteriores. No hace falta BOOT: funciona en placas con solo RST.
+
+Para configurar otra red, esperar un minuto con la pantalla encendida, conectar el móvil a **Pantalla EMT** y abrir **http://192.168.4.1**. Si el móvil advierte que esa WiFi no tiene Internet, mantener la conexión mientras se configura. Elegir la nueva red de 2,4 GHz y guardar su contraseña. Las credenciales EMT y la parada se conservan.
+
+El portal automático permanece abierto 10 minutos sin clientes y no caduca mientras haya un móvil conectado. Si termina sin configuración nueva, vuelve a intentar la red guardada durante un minuto y ofrece el portal de nuevo. Durante esa ventana de configuración se prioriza el punto de acceso; no se sigue intentando la red anterior hasta cerrar el portal. Las desconexiones inferiores a un minuto solo producen reintentos. Sin WiFi, el descanso programado se pospone para que este acceso siga disponible.
+
+Si la web normal es accesible, también sirve **Cambiar red WiFi**. El portal solicitado desde la web dura 3 minutos sin clientes; BOOT/GPIO0 se conserva como opción solo en placas que lo tengan. Tras conectar a la red elegida, abrir `http://pantalla-emt.local/` o la IP asignada.
 
 ## Actualizar por WiFi
 
@@ -45,7 +51,7 @@ Desde el móvil u ordenador conectado a la misma red, abrir `http://pantalla-emt
 
 Funciona en ambos perfiles, incluido `esp32dev` con instalación automática desactivada; no exige tener configurada la parada. Necesita conexión a Internet y hora válida para HTTPS. Conserva NVS y LittleFS: solo escribe la partición de aplicación OTA.
 
-Este menú existe desde 0.13.2. Para llegar desde una versión anterior sin USB, esa versión debe tener OTA operativa y debe publicarse la nueva release. La release preparada para ese salto es [v0.13.2](https://github.com/Karimbelmonte/Pantalla-EMT/releases/tag/v0.13.2). Ver [OTA_WIFI.md](validation/2026-11-09/OTA_WIFI.md).
+Este menú existe desde 0.13.2. Para llegar desde una versión anterior sin USB, esa versión debe tener OTA operativa y debe publicarse la nueva release. La release para ese salto es [v0.13.3](https://github.com/Karimbelmonte/Pantalla-EMT/releases/tag/v0.13.3). Ver [OTA_WIFI.md](validation/2026-11-09/OTA_WIFI.md).
 
 ## Configuración
 

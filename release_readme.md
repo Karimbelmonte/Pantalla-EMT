@@ -1,6 +1,6 @@
 # Actualización y publicación de Pantalla EMT
 
-La versión de esta entrega es **0.13.2**. La publicación fue autorizada el 9 de noviembre de 2026; la validación física en el ESP32 sigue pendiente. Consultar los resultados y pendientes en [el informe](validation/2026-11-09/REPORT.md).
+La versión de esta entrega es **0.13.3**. La publicación fue autorizada el 9 de noviembre de 2026; la instalación USB y la conexión/web están comprobadas, mientras que OTA física y estabilidad prolongada siguen pendientes. Consultar los resultados y pendientes en [el informe](validation/2026-11-09/REPORT.md).
 
 ## Perfiles de compilación
 
@@ -9,7 +9,7 @@ La versión de esta entrega es **0.13.2**. La publicación fue autorizada el 9 d
 | `esp32dev` | Desactivada. Incluye búsqueda e instalación manual desde `/update`. |
 | `esp32dev_ota` | Activada cuando hay WiFi y parada configurada. Usar después de validar el dispositivo. |
 
-La versión se define una sola vez en `include/firmware_version.h`. El tag debe ser una versión numérica de dos o tres componentes, por ejemplo `v0.13.2`. Se aceptan versiones con o sin `v`; no se aceptan sufijos de prerelease.
+La versión se define una sola vez en `include/firmware_version.h`. El tag debe ser una versión numérica de dos o tres componentes, por ejemplo `v0.13.3`. Se aceptan versiones con o sin `v`; no se aceptan sufijos de prerelease.
 
 ## Preparar una candidata
 
@@ -36,3 +36,7 @@ Las consultas y descargas validan certificados mediante el [bundle de ESP-IDF](h
 La descarga admite hasta tres redirecciones HTTPS hacia las ubicaciones previstas de GitHub, tiene límite de inactividad de 10 s y total de transferencia de 180 s. Un fallo antes de completar y verificar la imagen aborta la actualización. La interrupción física de alimentación y el comportamiento de arranque de una imagen nueva requieren ensayo en la placa.
 
 No se ha habilitado ni validado un mecanismo de rollback automático por fallo de la aplicación recién instalada. Las dos particiones OTA no bastan para garantizarlo. Conservar una imagen conocida y acceso USB como vía de recuperación; no borrar LittleFS durante una recuperación normal de firmware.
+
+## Configuración sin BOOT: 0.13.3
+
+Añade configuración WiFi sin BOOT después de 60 s sin conexión. El usuario autorizó publicar esta revisión como sucesora de 0.13.2. Ver [WIFI_SIN_BOOT.md](validation/2026-11-09/WIFI_SIN_BOOT.md).

@@ -1,38 +1,38 @@
-# 🚀 Cómo actualizar tu Pantalla-EMT vía GitHub (OTA)
+# Actualización y publicación de Pantalla EMT
 
-¡Buenas noticias! Ya no necesitas conectar cables USB para actualizar tu dispositivo. Sigue estos sencillos pasos para subir y desplegar nuevas versiones de código.
+La versión de esta entrega es **0.13.2**. La publicación fue autorizada el 9 de noviembre de 2026; la validación física en el ESP32 sigue pendiente. Consultar los resultados y pendientes en [el informe](validation/2026-11-09/REPORT.md).
 
-## 1. Preparar el código (VS Code + PlatformIO)
-Cuando realices cambios en el código (`main.cpp`, `web_server.cpp`, etc.):
-1.  **Sube la versión:** Cambia el `#define VERSION_MINOR` en `src/main.cpp` (ej: de `10` a `11`).
-2.  **Compila el proyecto:** Haz clic en el icono del "Check" (Build) en la barra inferior de PlatformIO.
-3.  **Localiza el binario:** El archivo que necesitas está en:
-    `Pantalla EMT/.pio/build/esp32dev/firmware.bin`
+## Perfiles de compilación
 
-## 2. Subir el código a GitHub
-Sube tus cambios al repositorio como haces normalmente:
-```bash
-git add .
-git commit -m "Descripción de las mejoras"
-git push
-```
+| Entorno | Instalación OTA al arrancar |
+| --- | --- |
+| `esp32dev` | Desactivada. Incluye búsqueda e instalación manual desde `/update`. |
+| `esp32dev_ota` | Activada cuando hay WiFi y parada configurada. Usar después de validar el dispositivo. |
 
-## 3. Crear una "Release" en GitHub (El paso clave)
-Para que el ESP32 detecte la actualización, debes "publicarla" en GitHub:
-1.  Ve a tu repositorio: [Karimbelmonte/Pantalla-EMT](https://github.com/Karimbelmonte/Pantalla-EMT)
-2.  En la barra lateral derecha, haz clic en **"Releases"** -> **"Create a new release"**.
-3.  **Choose a tag:** Escribe la versión con una 'v' delante, por ejemplo: `v0.11`.
-4.  **Título:** Pon un nombre a la versión (ej: `Mejora de fuentes`).
-5.  **ADJUNTA EL BINARIO:** Arrastra el archivo `firmware.bin` (el que localizaste en el punto 1) al recuadro de "Attach binaries".
-6.  Haz clic en **"Publish release"**.
+La versión se define una sola vez en `include/firmware_version.h`. El tag debe ser una versión numérica de dos o tres componentes, por ejemplo `v0.13.2`. Se aceptan versiones con o sin `v`; no se aceptan sufijos de prerelease.
 
-## 4. ¡Listo!
-La próxima vez que reinicies tu pantalla (o al encenderla por la mañana), ella:
-- Se conectará a GitHub.
-- Verá que existe la `v0.11`.
-- Comparará con su versión actual (`0.10`).
-- Se descargará el archivo sola y se reiniciará actualizada.
+## Preparar una candidata
 
----
-> [!TIP]
-> Si quieres forzar la actualización sin esperar, simplemente pulsa el botón de **Reiniciar** en la web de configuración de tu pantalla.
+1. Revisar el diff y conservar los cambios locales relevantes. `.pio` contiene muchos archivos versionados; no usar `git add .` sin revisar su contenido.
+2. Ejecutar las suites nativas y compilar el perfil elegido con la plataforma fijada en `platformio.ini`.
+3. Validar en hardware la configuración, red, presentación, descanso y recuperación. Mantener OTA automática desactivada durante estas pruebas.
+4. Ambos perfiles reciben actualizaciones manuales por WiFi desde `/update`. Solo si se desea instalación automática al arrancar, compilar explícitamente `pio run -e esp32dev_ota`. Su binario se obtiene en `.pio/build/esp32dev_ota/firmware.bin`.
+5. Revisar la versión candidata y sus resultados antes de publicar en `Karimbelmonte/Pantalla-EMT`.
+
+La ruta manual separa búsqueda y confirmación: el usuario instala la versión mostrada, con validez de 10 minutos. Se usan POST y un token de formulario por arranque; esto evita solicitudes ajenas al formulario, pero no sustituye autenticación en una red no confiable.
+
+## Contrato de la release
+
+Publicar una release estable, no borrador ni prerelease, con un único adjunto llamado exactamente `firmware.bin`. Debe ser la imagen de aplicación ESP32 del perfil elegido, no el bootloader, tabla de particiones ni imagen combinada.
+
+El firmware exige un adjunto en estado `uploaded`, tamaño positivo compatible con la partición y un digest `sha256:` de 64 dígitos hexadecimales en los metadatos de GitHub. Si faltan esos datos, rechaza la actualización. GitHub documenta tamaño, estado, URL y digest en sus [metadatos de assets](https://docs.github.com/en/rest/releases/assets?apiVersion=2022-11-28).
+
+Solo una versión remota superior se instala; igualdad, versiones anteriores y formatos inválidos no producen actualización. El tamaño descargado debe coincidir con los metadatos y el digest debe coincidir antes de activar la nueva partición.
+
+## Conexión y fallos
+
+Las consultas y descargas validan certificados mediante el [bundle de ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32/api-reference/protocols/esp_crt_bundle.html). Necesitan hora válida y no recurren a TLS inseguro si falla la validación. El bundle se actualiza con el framework/firmware; no se actualiza por separado en ejecución.
+
+La descarga admite hasta tres redirecciones HTTPS hacia las ubicaciones previstas de GitHub, tiene límite de inactividad de 10 s y total de transferencia de 180 s. Un fallo antes de completar y verificar la imagen aborta la actualización. La interrupción física de alimentación y el comportamiento de arranque de una imagen nueva requieren ensayo en la placa.
+
+No se ha habilitado ni validado un mecanismo de rollback automático por fallo de la aplicación recién instalada. Las dos particiones OTA no bastan para garantizarlo. Conservar una imagen conocida y acceso USB como vía de recuperación; no borrar LittleFS durante una recuperación normal de firmware.

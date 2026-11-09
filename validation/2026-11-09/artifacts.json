@@ -1,0 +1,30 @@
+[
+  {
+    "environment": "esp32dev",
+    "version": "0.13.0",
+    "automatic_ota": false,
+    "path": "validation/2026-11-09/firmware/esp32dev/firmware.bin",
+    "bytes": 1418800,
+    "sha256": "9b02c38d44209ead266f07e10cee49bc1c23b362765e4ae0db1e71c2d0be04a3",
+    "static_ram_bytes": 60772,
+    "application_bytes": 1418300,
+    "partition_bytes": 1966080
+  },
+  {
+    "environment": "esp32dev_ota",
+    "version": "0.13.0",
+    "automatic_ota": true,
+    "path": "validation/2026-11-09/firmware/esp32dev_ota/firmware.bin",
+    "bytes": 1427840,
+    "sha256": "690dd9c9bf394efeda1cf7f61c10dacc783a4fabdc591a8bddfd7f235b82cb65",
+    "static_ram_bytes": 60772,
+    "application_bytes": 1427332,
+    "partition_bytes": 1966080
+  },
+  {
+    "type": "empty_littlefs_for_explicit_initialization_only",
+    "path": "validation/2026-11-09/firmware/littlefs-empty.bin",
+    "bytes": 131072,
+    "sha256": "9bcf955d80bac9d894c538b7f62ae54e3b116d87f132a03e7eb1e5ff2c9fd057"
+  }
+]

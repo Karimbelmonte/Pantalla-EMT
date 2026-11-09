@@ -1,0 +1,20 @@
+{
+  "custom_partitions.csv": "fe66cdf53d5216316f59ec446e68820b32de1de31d751799d48a8df2452f72fa",
+  "include/board_model.h": "9b29765ab4faf11cd06e1aa178ceae797d0ac12e9fa264fedd84cb8ee024626d",
+  "include/config_codec.h": "ee8c634a3ca26bc4650471a4abff2a30827658b67805479d989ed064ae2820a7",
+  "include/config_model.h": "6415dcfcabcae58efba1fe040fa613e229270fafe73410ef85e79a862dc0aa46",
+  "include/firmware_version.h": "4add0513760c099a45269c7236c6f8903bae2d35819d62148852e6ab567c2e8b",
+  "include/globals.h": "f89e12fae4fa456393c71c73b16773d8f3f6f2513b5dc947de970429ab70954b",
+  "include/ota_policy.h": "373a25fab207b6ce46db4f6410a3bf410d0ddbe4fa0eae2b9ed39b0a6cdba282",
+  "include/runtime_policy.h": "ce788291bcc2671d1662741f87284177aba8ec28198cb00fd8dd5e28c6b4601a",
+  "include/secure_client.h": "8239d5749d15616790869017c53476d363167f111fe574c015cadea56baf710d",
+  "include/stop_detail.h": "a898700c34ca70596b4027f0967b4c21ef1d4fafc5d1e1454ec9bd635d9a8176",
+  "include/web_server.h": "f8283eda80d11e783116f9e23c7234403e78750e3f6b040f4d42b9e8aa465285",
+  "lib/stationData/stationData.h": "6a1bcc9be263c6f5f1ea436005909391a70d0406e930e7005d651c71cd0550b2",
+  "platformio.ini": "10dc625ca1e1e38d32f1e25eaa838b9854bcfb6686ad07c6a0b6abf30dd58036",
+  "src/config.cpp": "629c7acc5fb61dab8d80a1fbafa001e7588c956db11b1e472c6b5b61606be1a0",
+  "src/main.cpp": "5018845126afaa6f5a37bc16909ad068dd45bedc4c229be531be965b02c0f3e4",
+  "src/ota.cpp": "78079f5b865b84ca530a1b360e2108d12a68c417eeba76fcc43909200eedc918",
+  "src/secure_client.cpp": "e60ee338bd8dfcce2c686eb56b03c00c6ce072e8e14bc663c483d86ec4f2ed3c",
+  "src/web_server.cpp": "3a200fe1d9f5aa5313c4b07eb64bb92db3e6ed9d8cb2970c43139bdfb345f7f6"
+}

@@ -1,0 +1,9 @@
+{
+  "custom_partitions.csv": "fe66cdf53d5216316f59ec446e68820b32de1de31d751799d48a8df2452f72fa",
+  "include/globals.h": "53f6f88dff90c1d063cdc33cdf5a1045c0071a2fa252ba6dffb85b9559519ef0",
+  "include/web_server.h": "f8283eda80d11e783116f9e23c7234403e78750e3f6b040f4d42b9e8aa465285",
+  "lib/stationData/stationData.h": "6a1bcc9be263c6f5f1ea436005909391a70d0406e930e7005d651c71cd0550b2",
+  "platformio.ini": "10dc625ca1e1e38d32f1e25eaa838b9854bcfb6686ad07c6a0b6abf30dd58036",
+  "src/main.cpp": "a0494afb9d4319028e86bd8466d8f454de001d1ddacdb90b3ed90429433eb2e8",
+  "src/web_server.cpp": "baeeb33f0fe416926359509666b7d1db0aa77add019504b45de548caf825f45d"
+}

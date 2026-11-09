@@ -14,7 +14,7 @@
  *
  * Watchdogs:
  *  - Task WDT (ESP32) para colgados reales del loopTask.
- *  - Soft WDT (lógico) para estados "zombie" prolongados.
+ *  - Antigüedad de datos y errores independientes de la salud del bucle.
  *
  * Deep Sleep:
  *  - En ventana de sleep, calcula segundos hasta la hora de fin (endHour:00)
@@ -32,34 +32,33 @@
 #include <FS.h>
 #include <LittleFS.h>
 #include <ArduinoJson.h>
-#include <WiFiManager.h>
 #include <time.h>
 
 #include <SPI.h>
 #include <U8g2lib.h>
 
 #include "globals.h"
+#include "board_model.h"
+#include "stop_detail.h"
 #include "web_server.h"
-#include <HTTPUpdate.h>
+#include "firmware_version.h"
+#include "ota_control.h"
+#include "secure_client.h"
+#include "wifi_connection.h"
+#include "boot_diagnostics.h"
 
 // Watchdog (ESP32 Task WDT)
 #include "esp_task_wdt.h"
 // Deep sleep
 #include "esp_sleep.h"
 
-// ---------------------- Versión ----------------------
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 12
-
 // ---------------------- Watchdogs ----------------------
 extern const int WDT_TIMEOUT_S = 15;
 unsigned long nextWdtFeedMs = 0;
 extern const unsigned long WDT_FEED_PERIOD_MS = 250;
 
-unsigned long lastHealthyTickMs = 0;
-extern const unsigned long SOFT_WDT_MS = 5UL * 60UL * 1000UL; // 5 min
 unsigned long lastLoopBeatMs = 0;
-extern const unsigned long LOOP_BEAT_MS = 1000;
+unsigned long maxLoopGapMs = 0;
 
 // ---------------------- Pantalla / OLED ----------------------
 #define SCREEN_WIDTH 256
@@ -85,16 +84,22 @@ char displayedTime[16] = "";
 static const char tzSpain[] PROGMEM = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 
 // ---------------------- Config persistente ----------------------
-static const char CFG_PATH[] = "/config.json";
 
 
 AppConfig cfg;
+String resolvedStopName;
+bool stopDetailsLoaded = false;
+emt::RetrySchedule stopRetry;
+const char* displayStopName() {
+  return emt::stopDisplayName(cfg.emtStopName.c_str(), resolvedStopName.c_str());
+}
+static int countEmtGroups();
+static bool busSecondThisCycle = false;
 
 // ---------------------- Estado del sistema ----------------------
 AppState appState = ST_BOOT;
 
 bool wifiConnected = false;
-bool firstLoad = true;
 
 int brightness = 80;
 
@@ -122,6 +127,16 @@ String emtLastErrorMsg = "";
 
 // ---------------------- Weather state ----------------------
 WeatherState weather;
+emt::RetrySchedule weatherRetry;
+emt::RetrySchedule authRetry;
+
+void resetNetworkRetries() {
+  weatherRetry.reset();
+  stopRetry.reset();
+  authRetry.reset();
+  nextDataUpdate = millis();
+}
+
 #define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL)
 
 // ---------------------- UI alternancia ----------------------
@@ -136,8 +151,8 @@ void uiScheduleNext() {
   uint32_t dur;
   if (uiScreen == UI_BUS) {
     // Tiempo de bus = total - bus2 (para que BUS+BUS2 == uiBusMs)
-    uint32_t bus2 = (UI_BUS2_MS > 0) ? UI_BUS2_MS : 0;
-    dur = (UI_BUS_MS > bus2) ? (UI_BUS_MS - bus2) : UI_BUS_MS;
+    busSecondThisCycle = emt::hasSecondPage(countEmtGroups(), UI_BUS2_MS);
+    dur = emt::firstPageDuration(UI_BUS_MS, UI_BUS2_MS, busSecondThisCycle);
   } else if (uiScreen == UI_BUS2) {
     dur = UI_BUS2_MS;
   } else { // UI_WEATHER
@@ -146,82 +161,25 @@ void uiScheduleNext() {
   uiNextSwitchMs = millis() + dur;
 }
 
-
-// ---------------------- Helpers: “salud” ----------------------
-void markHealthy() {
-  lastHealthyTickMs = millis();
-}
-
 // ---------------------- Helpers: FS config ----------------------
-bool loadConfig(AppConfig& out) {
-  if (!LittleFS.exists(CFG_PATH)) return false;
-
-  File f = LittleFS.open(CFG_PATH, "r");
-  if (!f) return false;
-
-  StaticJsonDocument<1408> doc; // un poco más por nuevos campos
-  DeserializationError err = deserializeJson(doc, f);
-  f.close();
-  if (err) return false;
-
-  out.emtEmail      = doc["emtEmail"]      | "";
-  out.emtPassword   = doc["emtPassword"]   | "";
-  out.emtStopId     = doc["emtStopId"]     | "";
-  out.emtStopName   = doc["emtStopName"]   | "EMT Madrid";
-  out.weatherApiKey = doc["weatherApiKey"] | "";
-
-  out.uiBusMs       = doc["uiBusMs"]       | 45000UL;
-  out.uiWeatherMs   = doc["uiWeatherMs"]   | 10000UL;
-  out.uiBus2Ms      = doc["uiBus2Ms"]      | 0UL;
-
-  out.sleepEnabled  = doc["sleepEnabled"]  | false;
-  out.sleepDeep     = doc["sleepDeep"]     | false;
-  out.sleepStarts   = doc["sleepStarts"]   | 0;
-  out.sleepEnds     = doc["sleepEnds"]     | 6;
-  out.combineArrivals = doc["combineArrivals"] | true;
-
-  out.autoBrightness = doc["autoBrightness"] | false;
-  out.brightnessDay  = doc["brightnessDay"]  | 128;
-  out.brightnessNight = doc["brightnessNight"] | 20;
-
-  // sane defaults
-  if (out.sleepStarts > 23) out.sleepStarts = 0;
-  if (out.sleepEnds > 23) out.sleepEnds = 6;
-
-  return true;
-}
-
-bool saveConfig(const AppConfig& in) {
-  StaticJsonDocument<1408> doc;
-
-  doc["emtEmail"]      = in.emtEmail;
-  doc["emtPassword"]   = in.emtPassword;
-  doc["emtStopId"]     = in.emtStopId;
-  doc["emtStopName"]   = in.emtStopName;
-  doc["weatherApiKey"] = in.weatherApiKey;
-  doc["uiBusMs"]       = in.uiBusMs;
-  doc["uiWeatherMs"]   = in.uiWeatherMs;
-  doc["uiBus2Ms"]      = in.uiBus2Ms;
-
-  doc["sleepEnabled"]  = in.sleepEnabled;
-  doc["sleepDeep"]     = in.sleepDeep;
-  doc["sleepStarts"]   = in.sleepStarts;
-  doc["sleepEnds"]     = in.sleepEnds;
-  doc["combineArrivals"] = in.combineArrivals;
-
-  doc["autoBrightness"] = in.autoBrightness;
-  doc["brightnessDay"]  = in.brightnessDay;
-  doc["brightnessNight"] = in.brightnessNight;
-
-  File f = LittleFS.open(CFG_PATH, "w");
-  if (!f) return false;
-
-  if (serializeJsonPretty(doc, f) == 0) {
-    f.close();
-    return false;
-  }
-  f.close();
-  return true;
+void applyConfig(const AppConfig& candidate) {
+  bool stopChanged = cfg.emtStopId != candidate.emtStopId;
+  bool nameChanged = cfg.emtStopName != candidate.emtStopName;
+  bool authChanged = cfg.emtEmail != candidate.emtEmail || cfg.emtPassword != candidate.emtPassword;
+  bool weatherChanged = cfg.weatherApiKey != candidate.weatherApiKey;
+  cfg = candidate;
+  UI_BUS_MS = cfg.uiBusMs; UI_WEATHER_MS = cfg.uiWeatherMs; UI_BUS2_MS = cfg.uiBus2Ms;
+  brightness = cfg.manualBrightness;
+  u8g2.setContrast(brightness);
+  if (authChanged) { emtAccessToken = ""; emtTokenExpiresAtMs = 0; }
+  if (stopChanged) { clearBoard(); weatherResetOnStopChange(); resolvedStopName = ""; stopDetailsLoaded = false; }
+  if (nameChanged || authChanged || weatherChanged) stopDetailsLoaded = false;
+  if (weatherChanged) weatherResetOnStopChange();
+  if (stopChanged || nameChanged || authChanged || weatherChanged) resetNetworkRetries();
+  appState = haveStop(cfg) ? ST_RUNNING : ST_NEED_STOP;
+  uiScreen = UI_BUS;
+  uiScheduleNext();
+  if (appState == ST_RUNNING) drawEmtBoard();
 }
 
 bool haveCreds(const AppConfig& c) {
@@ -273,7 +231,7 @@ static void drawStartupScreen(const char* msg) {
   u8g2.setFont(u8g2_font_6x10_tf);
   centreText(msg, 18);
   u8g2.sendBuffer();
-  markHealthy();
+
 }
 
 static void drawSetupScreen() {
@@ -285,7 +243,7 @@ static void drawSetupScreen() {
   centreText("\"Pantalla EMT\"", 28);
   centreText("y abre 192.168.4.1", 40);
   u8g2.sendBuffer();
-  markHealthy();
+
 }
 
 static void drawNoTimeScreen() {
@@ -295,7 +253,7 @@ static void drawNoTimeScreen() {
   u8g2.setFont(u8g2_font_6x10_tf);
   centreText("Revisa WiFi / NTP", 18);
   u8g2.sendBuffer();
-  markHealthy();
+
 }
 
 static void drawNeedStopScreen() {
@@ -309,7 +267,7 @@ static void drawNeedStopScreen() {
   centreText(ip.c_str(), 42);
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  markHealthy();
+
 }
 
 void drawLoadingScreen(const char* msg) {
@@ -321,21 +279,21 @@ void drawLoadingScreen(const char* msg) {
   if (msg && msg[0] != '\0') centreText(msg, 32);
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  markHealthy();
+
 }
 
 // ---------------------- Reloj ----------------------
 static void drawClock(bool updateRegion) {
-  if (millis() < nextClockUpdate) return;
+  if (updateRegion && !emt::due(millis(), nextClockUpdate)) return;
   nextClockUpdate = millis() + CLOCKUPDATEINTERVAL;
 
-  if (!getLocalTime(&timeinfo)) return;
+  if (!getLocalTime(&timeinfo, 0)) return;
 
   char sysTime[16];
   snprintf(sysTime, sizeof(sysTime), "%02d:%02d:%02d",
            timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
-  if (strcmp(displayedTime, sysTime) == 0) return;
+  if (updateRegion && strcmp(displayedTime, sysTime) == 0) return;
   strcpy(displayedTime, sysTime);
 
   u8g2.setFont(u8g2_font_6x10_tf);
@@ -345,7 +303,6 @@ static void drawClock(bool updateRegion) {
 
   if (updateRegion) u8g2.updateDisplayArea(0, 0, 32, 2);
 
-  markHealthy();
 }
 
 // ---------------------- Sleep helpers ----------------------
@@ -361,7 +318,7 @@ static bool isInSleepWindow(uint8_t h, uint8_t startH, uint8_t endH) {
 
 static bool isSnoozing() {
   if (!cfg.sleepEnabled) return false;
-  if (!getLocalTime(&timeinfo)) return false;
+  if (!getLocalTime(&timeinfo, 0)) return false;
   uint8_t h = (uint8_t)timeinfo.tm_hour;
   return isInSleepWindow(h, cfg.sleepStarts, cfg.sleepEnds);
 }
@@ -371,7 +328,7 @@ static void drawSleepingScreenSoft() {
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x13_tf);
 
-  if (getLocalTime(&timeinfo)) {
+  if (getLocalTime(&timeinfo, 0)) {
     char t[8];
     snprintf(t, sizeof(t), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
     centreText(t, 24);
@@ -383,13 +340,12 @@ static void drawSleepingScreenSoft() {
   centreText("Modo sleep", 44);
 
   u8g2.sendBuffer();
-  firstLoad = true;
-  markHealthy();
+
 }
 
 static bool computeSecondsUntilWake(uint32_t& outSeconds) {
   // Necesitamos hora válida
-  if (!getLocalTime(&timeinfo)) return false;
+  if (!getLocalTime(&timeinfo, 0)) return false;
 
   // "now" local
   struct tm nowTm = timeinfo;
@@ -401,6 +357,7 @@ static bool computeSecondsUntilWake(uint32_t& outSeconds) {
   wakeTm.tm_hour = cfg.sleepEnds;
   wakeTm.tm_min = 0;
   wakeTm.tm_sec = 5;
+  wakeTm.tm_isdst = -1;
 
   time_t wakeT = mktime(&wakeTm);
   if (wakeT == (time_t)-1) return false;
@@ -408,6 +365,7 @@ static bool computeSecondsUntilWake(uint32_t& outSeconds) {
   // Si ya hemos pasado esa hora, mover a mañana
   if (difftime(wakeT, nowT) <= 0) {
     wakeTm.tm_mday += 1;
+    wakeTm.tm_isdst = -1;
     wakeT = mktime(&wakeTm);
     if (wakeT == (time_t)-1) return false;
   }
@@ -428,6 +386,8 @@ void enterDeepSleepUntilWake() {
     return;
   }
 
+  recordStage(emt::Stage::Sleep);
+  recordRestartIntent(emt::RestartIntent::Sleep);
   // Apagar la pantalla OLED del todo (modo ahorro de energía)
   // En lugar de borrarla y dejarla encendida como antes.
   u8g2.setPowerSave(1);
@@ -452,15 +412,15 @@ void enterDeepSleepUntilWake() {
 }
 
 // ---------------------- HTTP helpers ----------------------
-// 1) Global WiFiClientSecure to allow TLS Session Reuse (saves CPU and time)
+// Shared client; each request validates TLS and closes its connection.
 WiFiClientSecure globalSecureClient;
 
 static bool httpGetJsonStream(const String& url,
                               const std::function<void(HTTPClient&)>& addHeaders,
                               std::function<void(Stream&)> parseStream,
                               int& outHttpCode) {
-  // Allow insecure connections but REUSE the session if possible
-  globalSecureClient.setInsecure();
+  esp_task_wdt_reset();
+  if (!prepareSecureClient(globalSecureClient)) { outHttpCode = -1000; return false; }
 
   HTTPClient http;
   // Use the global client instead of creating a new one every time
@@ -470,19 +430,19 @@ static bool httpGetJsonStream(const String& url,
   }
 
   http.setConnectTimeout(4000);
-  http.setTimeout(8000);
+  http.setTimeout(4000);
+  http.useHTTP10(true);
 
   if (addHeaders) addHeaders(http);
 
   outHttpCode = http.GET();
-  if (outHttpCode > 0) {
+  if (outHttpCode >= 200 && outHttpCode < 300) {
     // Pass the stream directly to the JSON parser (saves heavy RAM usage)
     parseStream(http.getStream());
   }
-  
-  // We DO NOT call http.end() or globalSecureClient.stop() here 
-  // so the TLS session can be kept alive for the next request.
-  
+
+  http.end();
+  esp_task_wdt_reset();
   return (outHttpCode > 0);
 }
 
@@ -490,7 +450,8 @@ static bool httpPostJsonStream(const String& url, const String& payload,
                                const std::function<void(HTTPClient&)>& addHeaders,
                                std::function<void(Stream&)> parseStream,
                                int& outHttpCode) {
-  globalSecureClient.setInsecure();
+  esp_task_wdt_reset();
+  if (!prepareSecureClient(globalSecureClient)) { outHttpCode = -1000; return false; }
 
   HTTPClient http;
   if (!http.begin(globalSecureClient, url)) {
@@ -499,17 +460,20 @@ static bool httpPostJsonStream(const String& url, const String& payload,
   }
 
   http.setConnectTimeout(4000);
-  http.setTimeout(8000);
+  http.setTimeout(4000);
+  http.useHTTP10(true);
 
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Accept", "application/json");
   if (addHeaders) addHeaders(http);
 
   outHttpCode = http.POST(payload);
-  if (outHttpCode > 0) {
+  if (outHttpCode >= 200 && outHttpCode < 300) {
     parseStream(http.getStream());
   }
 
+  http.end();
+  esp_task_wdt_reset();
   return (outHttpCode > 0);
 }
 
@@ -517,11 +481,12 @@ static bool httpPostJsonStream(const String& url, const String& payload,
 static bool emtTokenValid() {
   if (emtAccessToken.isEmpty()) return false;
   if (emtTokenExpiresAtMs == 0) return false;
-  long remaining = (long)emtTokenExpiresAtMs - (long)millis();
+  int32_t remaining = static_cast<int32_t>(static_cast<uint32_t>(emtTokenExpiresAtMs - millis()));
   return remaining > 30000;
 }
 
-static bool emtLoginBasic(const String& email, const String& password) {
+static bool emtLoginBasicRequest(const String& email, const String& password) {
+  recordStage(emt::Stage::EmtLogin);
   esp_task_wdt_reset();
 
   emtLastErrorMsg = "";
@@ -539,13 +504,13 @@ static bool emtLoginBasic(const String& email, const String& password) {
       http.addHeader("Accept", "application/json");
     },
     [&](Stream& stream) {
-      StaticJsonDocument<3072> doc;
+      JsonDocument doc;
       auto err = deserializeJson(doc, stream);
       if (err) {
         jsonError = true;
         return;
       }
-      
+
       scode = String(doc["code"] | "");
       sdesc = String(doc["description"] | "");
       stoken = String(doc["data"][0]["accessToken"] | "");
@@ -576,11 +541,20 @@ static bool emtLoginBasic(const String& email, const String& password) {
 
   emtAccessToken = stoken;
 
-  if (tokenSecExpiration <= 120) tokenSecExpiration = 120;
+  tokenSecExpiration = emt::bounded<long>(tokenSecExpiration, 120, 86400);
   unsigned long ttlMs = (unsigned long)(tokenSecExpiration - 60) * 1000UL;
   emtTokenExpiresAtMs = millis() + ttlMs;
 
-  markHealthy();
+  return true;
+}
+
+static bool emtLoginBasic(const String& email, const String& password) {
+  if (!authRetry.ready(millis())) return false;
+  if (!emtLoginBasicRequest(email, password)) {
+    authRetry.fail(millis());
+    return false;
+  }
+  authRetry.reset();
   return true;
 }
 
@@ -626,63 +600,49 @@ static void setMessage(const String& m) {
 }
 
 // ---------------------- EMT: Stop detail coords ----------------------
-static bool emtFetchStopCoords(const String& stopId, double& outLat, double& outLon) {
-  esp_task_wdt_reset();
-
-  if (!emtTokenValid()) {
-    if (!emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) return false;
-  }
-
-  String url = "https://openapi.emtmadrid.es/v1/transport/busemtmad/stops/" + stopId + "/detail/";
-
+static bool emtFetchStopDetail() {
+  if (!emtTokenValid() && !emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) return false;
+  recordStage(emt::Stage::EmtDetail);
+  String url = "https://openapi.emtmadrid.es/v1/transport/busemtmad/stops/" + cfg.emtStopId + "/detail/";
   int httpCode = 0;
-  bool jsonError = false;
-  String scode;
-  double tmpLon = 0.0, tmpLat = 0.0;
+  bool parsed = false;
+  emt::StopDetail detail;
+  String name;
+  bool ok = httpGetJsonStream(url, [&](HTTPClient& http) {
+    http.addHeader("accessToken", emtAccessToken);
+    http.addHeader("Accept", "application/json");
+  }, [&](Stream& stream) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, stream)) {
+      parsed = emt::parseStopDetail(doc, detail);
+      if (parsed) name = detail.name;
+      if (String(doc["code"] | "") == "80") emtAccessToken = "";
+    }
+  }, httpCode);
+  if (httpCode == 401 || httpCode == 403) emtAccessToken = "";
+  if (!ok || httpCode != 200 || !parsed) return false;
+  resolvedStopName = name;
+  stopDetailsLoaded = emt::stopDetailComplete(cfg.emtStopName.isEmpty(), !cfg.weatherApiKey.isEmpty(), name.c_str(), detail.hasCoords);
+  weather.hasCoords = detail.hasCoords;
+  weather.lon = detail.longitude; weather.lat = detail.latitude;
+  return stopDetailsLoaded;
+}
 
-  bool ok = httpGetJsonStream(url,
-    [&](HTTPClient& http) {
-      http.addHeader("accessToken", emtAccessToken);
-      http.addHeader("Accept", "application/json");
-    },
-    [&](Stream& stream) {
-      StaticJsonDocument<4096> doc;
-      if (deserializeJson(doc, stream)) {
-        jsonError = true;
-        return;
-      }
-      
-      scode = String(doc["code"] | "");
-      if (scode != "00") return;
-
-      JsonArray coords = doc["data"][0]["stops"][0]["geometry"]["coordinates"].as<JsonArray>();
-      if (!coords.isNull() && coords.size() >= 2) {
-        tmpLon = coords[0].as<double>();
-        tmpLat = coords[1].as<double>();
-      }
-    },
-    httpCode
-  );
-
-  if (!ok || httpCode < 200 || httpCode >= 300 || jsonError || scode != "00" || tmpLon == 0.0) {
-    return false;
-  }
-
-  outLon = tmpLon;
-  outLat = tmpLat;
-
-  markHealthy();
-  return true;
+static void stopDetailsTick() {
+  if (!wifiConnected || !haveCreds(cfg) || !haveStop(cfg) || stopDetailsLoaded) return;
+  if (!cfg.emtStopName.isEmpty() && cfg.weatherApiKey.isEmpty()) return;
+  if (!stopRetry.ready(millis())) return;
+  if (emtFetchStopDetail()) stopRetry.reset();
+  else { stopRetry.fail(millis()); weather.lastError = "No se pudo obtener detalle de parada EMT"; }
 }
 
 // ---------------------- EMT Arrivals (v1) ----------------------
 static bool emtFetchArrivalsV1(const String& stopId) {
   esp_task_wdt_reset();
-  emtLastErrorMsg = "";
-
   if (!emtTokenValid()) {
     if (!emtLoginBasic(cfg.emtEmail, cfg.emtPassword)) return false;
   }
+  emtLastErrorMsg = "";
 
   const String url = "https://openapi.emtmadrid.es/v1/transport/busemtmad/stops/" + stopId + "/arrives/";
 
@@ -699,7 +659,10 @@ static bool emtFetchArrivalsV1(const String& stopId) {
   int servicesFound = -1;
 
   auto parseArrivals = [&](Stream& stream) {
-    StaticJsonDocument<8192> doc;
+    jsonError = false;
+    scode = "";
+    servicesFound = -1;
+    JsonDocument doc;
     auto err = deserializeJson(doc, stream);
     if (err) {
       jsonError = true;
@@ -711,7 +674,7 @@ static bool emtFetchArrivalsV1(const String& stopId) {
 
     if (scode == "00" || scode == "01") {
       clearBoard();
-      strncpy(station.location, cfg.emtStopName.c_str(), MAXLOCATIONSIZE - 1);
+      strncpy(station.location, displayStopName(), MAXLOCATIONSIZE - 1);
       station.location[MAXLOCATIONSIZE - 1] = '\0';
 
       JsonArray arr = doc["data"][0]["Arrive"].as<JsonArray>();
@@ -751,6 +714,7 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     }
   };
 
+  recordStage(emt::Stage::EmtArrivals);
   bool ok = httpPostJsonStream(url, payload,
     [&](HTTPClient& http) {
       http.addHeader("accessToken", emtAccessToken);
@@ -774,6 +738,7 @@ static bool emtFetchArrivalsV1(const String& stopId) {
       return false;
     }
 
+    recordStage(emt::Stage::EmtArrivals);
     ok = httpPostJsonStream(url, payload,
       [&](HTTPClient& http) {
         http.addHeader("accessToken", emtAccessToken);
@@ -804,7 +769,7 @@ static bool emtFetchArrivalsV1(const String& stopId) {
     } else {
       station.numServices = servicesFound;
     }
-    markHealthy();
+
     return true;
   }
 
@@ -816,14 +781,16 @@ static bool emtFetchArrivalsV1(const String& stopId) {
 bool getEmtBoard() {
   if (!haveCreds(cfg) || !haveStop(cfg)) return false;
 
+  bool hadSecondPage = emt::hasSecondPage(countEmtGroups(), UI_BUS2_MS);
   bool ok = emtFetchArrivalsV1(cfg.emtStopId);
+  if (hadSecondPage != emt::hasSecondPage(countEmtGroups(), UI_BUS2_MS)) { uiScreen = UI_BUS; uiScheduleNext(); }
   nextDataUpdate = millis() + DATAUPDATEINTERVAL;
 
   if (ok) {
     lastDataLoadTime = millis();
     dataLoadSuccess++;
     lastUpdateResult = UPD_SUCCESS;
-    markHealthy();
+
     return true;
   } else {
     dataLoadFailure++;
@@ -834,6 +801,7 @@ bool getEmtBoard() {
 
 // ---------------------- Weather fetch (OpenWeather current) ----------------------
 static bool weatherFetchCurrent(double lat, double lon) {
+  recordStage(emt::Stage::Weather);
   esp_task_wdt_reset();
   weather.lastError = "";
 
@@ -847,6 +815,7 @@ static bool weatherFetchCurrent(double lat, double lon) {
                "&appid=" + cfg.weatherApiKey +
                "&units=metric&lang=es";
 
+  WeatherState candidate = weather;
   int httpCode = 0;
   bool jsonError = false;
 
@@ -855,26 +824,27 @@ static bool weatherFetchCurrent(double lat, double lon) {
       http.addHeader("Accept", "application/json");
     },
     [&](Stream& stream) {
-      StaticJsonDocument<4096> doc;
+      JsonDocument doc;
       if (deserializeJson(doc, stream)) {
         jsonError = true;
         return;
       }
-      
-      weather.tempC  = doc["main"]["temp"] | NAN;
-      weather.feelsC = doc["main"]["feels_like"] | NAN;
-      weather.minC   = doc["main"]["temp_min"] | NAN;
-      weather.maxC   = doc["main"]["temp_max"] | NAN;
+
+      if (!doc["main"]["temp"].is<double>()) { jsonError = true; return; }
+      candidate.tempC  = doc["main"]["temp"] | NAN;
+      candidate.feelsC = doc["main"]["feels_like"] | NAN;
+      candidate.minC   = doc["main"]["temp_min"] | NAN;
+      candidate.maxC   = doc["main"]["temp_max"] | NAN;
 
       const char* d = doc["weather"][0]["description"] | "";
       const char* i = doc["weather"][0]["icon"] | "";
-      strncpy(weather.desc, d, sizeof(weather.desc) - 1);
-      weather.desc[sizeof(weather.desc) - 1] = '\0';
-      strncpy(weather.icon, i, sizeof(weather.icon) - 1);
-      weather.icon[sizeof(weather.icon) - 1] = '\0';
+      strncpy(candidate.desc, d, sizeof(candidate.desc) - 1);
+      candidate.desc[sizeof(candidate.desc) - 1] = '\0';
+      strncpy(candidate.icon, i, sizeof(candidate.icon) - 1);
+      candidate.icon[sizeof(candidate.icon) - 1] = '\0';
 
-      weather.sunrise = doc["sys"]["sunrise"] | 0;
-      weather.sunset  = doc["sys"]["sunset"]  | 0;
+      candidate.sunrise = doc["sys"]["sunrise"] | 0;
+      candidate.sunset  = doc["sys"]["sunset"]  | 0;
     },
     httpCode
   );
@@ -889,52 +859,34 @@ static bool weatherFetchCurrent(double lat, double lon) {
     return false;
   }
 
+  weather = candidate;
   weather.hasData = true;
   weather.lastFetchMs = millis();
-  weather.nextFetchMs = millis() + WEATHER_UPDATE_INTERVAL_MS;
 
-  markHealthy();
   return true;
 }
 
 void weatherResetOnStopChange() {
+  weatherRetry.reset();
   weather.hasCoords = false;
   weather.hasData = false;
   weather.lastError = "";
-  weather.nextFetchMs = 0;
   weather.lastFetchMs = 0;
   weather.lat = 0;
   weather.lon = 0;
   weather.desc[0] = '\0';
   weather.icon[0] = '\0';
+  weather.sunrise = weather.sunset = 0;
 }
 
 void weatherTick() {
-  if (!wifiConnected) return;
-  if (cfg.weatherApiKey.isEmpty()) return;
-  if (!haveStop(cfg)) return;
-
-  if (!weather.hasCoords) {
-    if (!haveCreds(cfg)) {
-      weather.lastError = "No EMT creds (coords)";
-      weather.nextFetchMs = millis() + 60000UL;
-      return;
-    }
-    double lat = 0.0, lon = 0.0;
-    if (!emtFetchStopCoords(cfg.emtStopId, lat, lon)) {
-      weather.lastError = "No coords from EMT";
-      weather.nextFetchMs = millis() + 60000UL;
-      return;
-    }
-    weather.lat = lat;
-    weather.lon = lon;
-    weather.hasCoords = true;
-    weather.hasData = false;
-    weather.nextFetchMs = 0;
-  }
-
-  if (millis() < weather.nextFetchMs) return;
-  (void)weatherFetchCurrent(weather.lat, weather.lon);
+  stopDetailsTick(); // Name resolution also works without OpenWeather.
+  bool enabled = wifiConnected && !cfg.weatherApiKey.isEmpty() && haveStop(cfg);
+  emt::weatherAttempt(weatherRetry, millis(), enabled, []() {
+    if (!weather.hasCoords) { weather.lastError = "Sin coordenadas de parada EMT"; return false; }
+    return true;
+  }, []() { return weatherFetchCurrent(weather.lat, weather.lon); },
+  []() { return static_cast<uint32_t>(millis()); });
 }
 
 // ---------------------- Iconos Weather (bitmaps 16x16) ----------------------
@@ -1020,178 +972,38 @@ static void drawEmtLine(const char* line, const char* dest, const int* arrivals,
   u8g2.drawStr(SCREEN_WIDTH - wRight, y, right.c_str());
 }
 
-void drawEmtBoard() {
-  u8g2.clearBuffer();
-  u8g2.setContrast(brightness);
-
-  u8g2.setFont(u8g2_font_6x13_tf);
-  centreText(cfg.emtStopName.c_str(), 0);
-
-  drawClock(false);
-
-  u8g2.setFont(u8g2_font_6x10_tf);
-
-  if (!haveStop(cfg)) {
-    centreText("Falta StopId", 28);
-    centreText("Configura en web (/)", 40);
-    drawStatusBarIcons();
-    u8g2.sendBuffer();
-    markHealthy();
-    return;
-  }
-
-  if (!haveCreds(cfg)) {
-    centreText("Faltan credenciales EMT", 28);
-    centreText("Configura en web (/)", 40);
-    drawStatusBarIcons();
-    u8g2.sendBuffer();
-    markHealthy();
-    return;
-  }
-
-  if (station.numServices == 0) {
-    if (messages.numMessages > 0) centreText(messages.messages[0], 18);
-    else centreText("Sin estimaciones", 18);
-  } else {
-    // Agrupación de servicios por línea/destino
-    struct Group {
-      String line;
-      String dest;
-      int arrivals[4];
-      int count;
-    };
-    Group groups[MAXBOARDSERVICES];
-    int numGroups = 0;
-
-    for (int i = 0; i < station.numServices; i++) {
-      rdService& svc = station.service[i];
-      int elapsed = (svc.receivedAtMs != 0) ? (int)((millis() - svc.receivedAtMs) / 1000UL) : 0;
-      if (elapsed > 90) elapsed = 90;
-      int secs = svc.timeToStation - elapsed;
-      if (secs < 0) secs = 0;
-
-      bool found = false;
-      for (int j = 0; j < numGroups; j++) {
-        if (groups[j].line == svc.via && groups[j].dest == svc.destination) {
-          int maxPerLine = cfg.combineArrivals ? 2 : 1; 
-          if (groups[j].count < maxPerLine) {
-            groups[j].arrivals[groups[j].count++] = secs;
-            found = true;
-            break;
-          }
-        }
-      }
-
-      if (!found && numGroups < MAXBOARDSERVICES) {
-        groups[numGroups].line = svc.via;
-        groups[numGroups].dest = svc.destination;
-        groups[numGroups].arrivals[0] = secs;
-        groups[numGroups].count = 1;
-        numGroups++;
-      }
-    }
-
-    // Dibujar hasta 3 grupos (filas)
-    int yPositions[] = {18, 32, 46};
-    for (int i = 0; i < numGroups && i < 3; i++) {
-      drawEmtLine(groups[i].line.c_str(), groups[i].dest.c_str(), groups[i].arrivals, groups[i].count, yPositions[i]);
-    }
-  }
-
-  drawStatusBarIcons();
-  u8g2.sendBuffer();
-  markHealthy();
-}
-
-// Cuenta cuántos grupos hay (para omitir UI_BUS2 en runtime si <=3)
 static int countEmtGroups() {
-  if (station.numServices == 0) return 0;
-  struct MiniGroup { String line; String dest; };
-  MiniGroup mg[MAXBOARDSERVICES];
-  int n = 0;
-  for (int i = 0; i < station.numServices; i++) {
-    rdService& svc = station.service[i];
-    bool found = false;
-    for (int j = 0; j < n; j++) {
-      if (mg[j].line == svc.via && mg[j].dest == svc.destination) { found = true; break; }
-    }
-    if (!found && n < MAXBOARDSERVICES) {
-      mg[n].line = svc.via;
-      mg[n].dest = svc.destination;
-      n++;
-    }
-  }
-  return n;
+  emt::BoardRow rows[MAXBOARDSERVICES];
+  return emt::buildRows(station.service, station.numServices, cfg.combineArrivals,
+                        millis(), rows, MAXBOARDSERVICES);
 }
 
-void drawEmtBoard2() {
+static void drawEmtPage(int page) {
   u8g2.clearBuffer();
   u8g2.setContrast(brightness);
-
   u8g2.setFont(u8g2_font_6x13_tf);
-  centreText(cfg.emtStopName.c_str(), 0);
-
+  centreText(displayStopName(), 0);
   drawClock(false);
-
   u8g2.setFont(u8g2_font_6x10_tf);
-
-  if (station.numServices == 0) {
-    // No debería ocurrir (la omisión en runtime lo evita), pero por si acaso
-    centreText("Sin estimaciones", 28);
-    drawStatusBarIcons();
-    u8g2.sendBuffer();
-    markHealthy();
-    return;
-  }
-
-  // Re-calcular los grupos (igual que en drawEmtBoard)
-  struct Group {
-    String line;
-    String dest;
-    int arrivals[4];
-    int count;
-  };
-  Group groups[MAXBOARDSERVICES];
-  int numGroups = 0;
-
-  for (int i = 0; i < station.numServices; i++) {
-    rdService& svc = station.service[i];
-    int elapsed = (svc.receivedAtMs != 0) ? (int)((millis() - svc.receivedAtMs) / 1000UL) : 0;
-    if (elapsed > 90) elapsed = 90;
-    int secs = svc.timeToStation - elapsed;
-    if (secs < 0) secs = 0;
-
-    bool found = false;
-    for (int j = 0; j < numGroups; j++) {
-      if (groups[j].line == svc.via && groups[j].dest == svc.destination) {
-        int maxPerLine = cfg.combineArrivals ? 2 : 1;
-        if (groups[j].count < maxPerLine) {
-          groups[j].arrivals[groups[j].count++] = secs;
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found && numGroups < MAXBOARDSERVICES) {
-      groups[numGroups].line = svc.via;
-      groups[numGroups].dest = svc.destination;
-      groups[numGroups].arrivals[0] = secs;
-      groups[numGroups].count = 1;
-      numGroups++;
+  if (!haveStop(cfg) || !haveCreds(cfg)) {
+    centreText(!haveStop(cfg) ? "Falta StopId" : "Faltan credenciales EMT", 28);
+    centreText("Configura en web (/)", 40);
+  } else if (station.numServices == 0) {
+    centreText(!wifiConnected ? "WiFi: reintentando conexion" : (messages.numMessages > 0 ? messages.messages[0] : "Sin estimaciones"), 18);
+    if (!wifiConnected) centreText("BOOT 3s: configurar WiFi", 36);
+  } else {
+    emt::BoardRow rows[MAXBOARDSERVICES];
+    int count = emt::buildRows(station.service, station.numServices, cfg.combineArrivals,
+                              millis(), rows, MAXBOARDSERVICES);
+    for (int index = page*3; index < count && index < (page+1)*3; ++index) {
+      const auto& row = rows[index];
+      drawEmtLine(row.line, row.destination, row.arrivals, row.count, 18+(index%3)*14);
     }
   }
-
-  // Dibujar grupos 4, 5, 6 (índices 3, 4, 5)
-  int yPositions[] = {18, 32, 46};
-  int drawn = 0;
-  for (int i = 3; i < numGroups && drawn < 3; i++, drawn++) {
-    drawEmtLine(groups[i].line.c_str(), groups[i].dest.c_str(), groups[i].arrivals, groups[i].count, yPositions[drawn]);
-  }
-
-  drawStatusBarIcons();
-  u8g2.sendBuffer();
-  markHealthy();
+  drawStatusBarIcons(); u8g2.sendBuffer();
 }
+void drawEmtBoard() { drawEmtPage(0); }
+void drawEmtBoard2() { drawEmtPage(1); }
 
 // ---------------------- Dibujo Weather ----------------------
 void drawWeatherScreen() {
@@ -1209,7 +1021,7 @@ void drawWeatherScreen() {
     centreText("Configura en web (/)", 34);
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    markHealthy();
+
     return;
   }
 
@@ -1222,7 +1034,7 @@ void drawWeatherScreen() {
     }
     drawStatusBarIcons();
     u8g2.sendBuffer();
-    markHealthy();
+
     return;
   }
 
@@ -1262,462 +1074,17 @@ void drawWeatherScreen() {
 
   drawStatusBarIcons();
   u8g2.sendBuffer();
-  markHealthy();
-}
 
-// ---------------------- Web helpers ----------------------
-static void sendResponse(int code, const String& msg) {
-  server.send(code, contentTypeText, msg);
 }
-
-static String htmlHeader(const char* title) {
-  String s;
-  s += "<!doctype html><html><head><meta charset='utf-8'>";
-  s += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  s += "<title>";
-  s += title;
-  s += "</title></head><body style='font-family:Arial;max-width:720px;margin:20px;'>";
-  return s;
-}
-
-static String htmlFooter() { return "</body></html>"; }
 
 static void updateMyMdns(const char* hostname) {
-  if (MDNS.begin(hostname)) {
-    MDNS.addService("http", "tcp", 80);
-  }
-}
-
-// ---------------------- Endpoints ----------------------
-static void handleInfo() {
-  unsigned long uptime = millis();
-  char sysUptime[64];
-  int days = uptime / 86400000UL;
-  int hours = (uptime % 86400000UL) / 3600000UL;
-  int minutes = ((uptime % 86400000UL) % 3600000UL) / 60000UL;
-  snprintf(sysUptime, sizeof(sysUptime), "%d days, %d hrs, %d min", days, hours, minutes);
-
-  String msg;
-  msg += "Pantalla EMT\n";
-  msg += "Firmware: v" + String(VERSION_MAJOR) + "." + String(VERSION_MINOR) + "\n";
-  msg += "Uptime: " + String(sysUptime) + "\n";
-  msg += "WiFi: " + String(WiFi.SSID()) + "\n";
-  msg += "IP: " + WiFi.localIP().toString() + "\n";
-  msg += "RSSI: " + String(WiFi.RSSI()) + " dB\n";
-  msg += "State: " + String((int)appState) + "\n";
-  msg += "Screen: " + String((uiScreen == UI_BUS) ? "BUS" : "WEATHER") + "\n";
-  msg += "StopName: " + cfg.emtStopName + "\n";
-  msg += "StopId: " + cfg.emtStopId + "\n";
-  msg += "Brightness: " + String(brightness) + "\n";
-  msg += "EMT email set: " + String(cfg.emtEmail.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "EMT pass set: " + String(cfg.emtPassword.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "Token valid: " + String(emtTokenValid() ? "YES" : "NO") + "\n";
-  msg += "OpenWeather key set: " + String(cfg.weatherApiKey.isEmpty() ? "NO" : "YES") + "\n";
-  msg += "UI BUS ms: " + String(cfg.uiBusMs) + "\n";
-  msg += "UI WEATHER ms: " + String(cfg.uiWeatherMs) + "\n";
-
-  msg += "Sleep enabled: " + String(cfg.sleepEnabled ? "YES" : "NO") + "\n";
-  msg += "Sleep mode: " + String(cfg.sleepDeep ? "DEEP" : "SOFT") + "\n";
-  msg += "Sleep window: " + String(cfg.sleepStarts) + " -> " + String(cfg.sleepEnds) + "\n";
-  if (getLocalTime(&timeinfo)) {
-    msg += "Local time: " + String(timeinfo.tm_hour) + ":" + String(timeinfo.tm_min) + ":" + String(timeinfo.tm_sec) + "\n";
-    bool inWin = isInSleepWindow((uint8_t)timeinfo.tm_hour, cfg.sleepStarts, cfg.sleepEnds);
-    msg += "In sleep window: " + String(inWin ? "YES" : "NO") + "\n";
-    uint32_t secs = 0;
-    if (inWin && computeSecondsUntilWake(secs)) {
-      msg += "Seconds until wake: " + String(secs) + "\n";
-    }
-  } else {
-    msg += "Local time: (NTP unavailable)\n";
-  }
-
-  msg += "Weather coords: " + String(weather.hasCoords ? "YES" : "NO") + "\n";
-  if (weather.hasCoords) msg += "Lat: " + String(weather.lat, 6) + " Lon: " + String(weather.lon, 6) + "\n";
-  msg += "Weather data: " + String(weather.hasData ? "YES" : "NO") + "\n";
-  if (!weather.lastError.isEmpty()) msg += "Weather err: " + weather.lastError + "\n";
-  msg += "Success: " + String(dataLoadSuccess) + "\n";
-  msg += "Failures: " + String(dataLoadFailure) + "\n";
-  msg += "Services: " + String(station.numServices) + "\n";
-  if (messages.numMessages) msg += "Message: " + String(messages.messages[0]) + "\n";
-  if (!emtLastErrorMsg.isEmpty()) msg += "EMT Error: " + emtLastErrorMsg + "\n";
-
-  msg += "WDT timeout (s): " + String(WDT_TIMEOUT_S) + "\n";
-  msg += "SoftWDT (ms): " + String(SOFT_WDT_MS) + "\n";
-  msg += "Last healthy (ms ago): " + String((lastHealthyTickMs == 0) ? -1 : (long)(millis() - lastHealthyTickMs)) + "\n";
-
-  sendResponse(200, msg);
-}
-
-static void handleReboot() {
-  sendResponse(200, "Reiniciando...");
-  delay(400);
-  ESP.restart();
-}
-
-static void handleBrightness() {
-  if (!server.hasArg("b")) {
-    sendResponse(400, "Falta parametro b");
-    return;
-  }
-  int level = server.arg("b").toInt();
-  if (level < 1 || level > 255) {
-    sendResponse(400, "b debe estar entre 1 y 255");
-    return;
-  }
-  brightness = level;
-  u8g2.setContrast(brightness);
-  sendResponse(200, "OK");
-}
-
-static void handleSleepNow() {
-  if (!cfg.sleepEnabled) {
-    sendResponse(400, "Sleep no habilitado");
-    return;
-  }
-  if (!cfg.sleepDeep) {
-    sendResponse(200, "SleepNow solo hace deep sleep si sleepDeep=YES. Cambia modo en /config.");
-    return;
-  }
-  sendResponse(200, "Entrando en deep sleep...");
-  delay(200);
-  enterDeepSleepUntilWake();
-}
-
-// -------- Config principal --------
-static void handleConfigGet() {
-  String s = htmlHeader("Pantalla EMT");
-  s += "<h2>Pantalla EMT</h2>";
-
-  s += "<p><b>IP:</b> " + WiFi.localIP().toString() + "<br>";
-  s += "<b>mDNS:</b> pantalla-emt.local</p>";
-
-  s += "<form method='POST' action='/config'>";
-
-  s += "<hr><h3>Parada</h3>";
-  s += "<label>StopId</label><br>";
-  s += "<input name='stopId' value='" + cfg.emtStopId + "' style='width:100%;padding:8px'><br><br>";
-  s += "<label>Nombre en pantalla (opcional)</label><br>";
-  s += "<input name='stopName' value='" + cfg.emtStopName + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<hr><h3>Credenciales EMT (MobilityLabs Basic)</h3>";
-  s += "<label>EMT Email</label><br>";
-  s += "<input name='emtEmail' value='" + cfg.emtEmail + "' style='width:100%;padding:8px'><br><br>";
-  s += "<label>EMT Password</label><br>";
-  s += "<input name='emtPassword' type='password' value='" + cfg.emtPassword + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<hr><h3>OpenWeather</h3>";
-  s += "<label>OpenWeather API key</label><br>";
-  s += "<input name='weatherKey' value='" + cfg.weatherApiKey + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<hr><h3>Pantalla</h3>";
-  s += "<label>Brillo (1-255)</label><br>";
-  s += "<input name='brightness' value='" + String(brightness) + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<hr><h3>Duracion pantallas</h3>";
-  s += "<label>Buses (segundos)</label><br>";
-  s += "<input name='busSecs' value='" + String(cfg.uiBusMs / 1000UL) + "' style='width:100%;padding:8px'><br><br>";
-  s += "<label>Tiempo (segundos)</label><br>";
-  s += "<input name='weatherSecs' value='" + String(cfg.uiWeatherMs / 1000UL) + "' style='width:100%;padding:8px'><br><br>";
-
-  // Sleep
-  s += "<hr><h3>Sleep</h3>";
-  s += "<label><input type='checkbox' name='sleepEnabled' ";
-  if (cfg.sleepEnabled) s += "checked";
-  s += "> Habilitar sleep</label><br><br>";
-
-  s += "<label>Modo</label><br>";
-  s += "<select name='sleepMode' style='width:100%;padding:8px'>";
-  s += "<option value='soft'";
-  if (!cfg.sleepDeep) s += " selected";
-  s += ">Soft (pantalla tenue, sigue vivo)</option>";
-  s += "<option value='deep'";
-  if (cfg.sleepDeep) s += " selected";
-  s += ">Deep Sleep (apaga y despierta a endHour)</option>";
-  s += "</select><br><br>";
-
-  s += "<label>Sleep starts (0-23)</label><br>";
-  s += "<input name='sleepStarts' value='" + String(cfg.sleepStarts) + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<label>Sleep ends (0-23)</label><br>";
-  s += "<input name='sleepEnds' value='" + String(cfg.sleepEnds) + "' style='width:100%;padding:8px'><br><br>";
-
-  s += "<button type='submit' style='padding:10px 14px;'>Guardar cambios</button>";
-  s += "</form>";
-
-  s += "<hr>";
-  s += "<p><a href='/info'>/info</a> | <a href='/reboot'>Reiniciar</a> | <a href='/sleepnow'>Deep sleep now</a></p>";
-  s += htmlFooter();
-
-  server.send(200, contentTypeHtml, s);
-}
-
-static void handleConfigPost() {
-  bool changed = false;
-  bool needRefreshNow = false;
-  bool stopChanged = false;
-  bool uiChanged = false;
-  bool sleepChanged = false;
-
-  if (server.hasArg("stopId")) {
-    String newStop = server.arg("stopId");
-    newStop.trim();
-    if (newStop != cfg.emtStopId) {
-      cfg.emtStopId = newStop;
-      clearBoard();
-      nextDataUpdate = 0;
-      changed = true;
-      needRefreshNow = true;
-      stopChanged = true;
-    }
-  }
-
-  if (server.hasArg("stopName")) {
-    String newName = server.arg("stopName");
-    newName.trim();
-    if (newName.isEmpty()) newName = "EMT Madrid";
-    if (newName != cfg.emtStopName) {
-      cfg.emtStopName = newName;
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("emtEmail")) {
-    String v = server.arg("emtEmail");
-    v.trim();
-    if (v != cfg.emtEmail) {
-      cfg.emtEmail = v;
-      changed = true;
-      needRefreshNow = true;
-      emtAccessToken = "";
-      emtTokenExpiresAtMs = 0;
-    }
-  }
-
-  if (server.hasArg("emtPassword")) {
-    String v = server.arg("emtPassword");
-    v.trim();
-    if (v != cfg.emtPassword) {
-      cfg.emtPassword = v;
-      changed = true;
-      needRefreshNow = true;
-      emtAccessToken = "";
-      emtTokenExpiresAtMs = 0;
-    }
-  }
-
-  if (server.hasArg("weatherKey")) {
-    String v = server.arg("weatherKey");
-    v.trim();
-    if (v != cfg.weatherApiKey) {
-      cfg.weatherApiKey = v;
-      changed = true;
-      weather.nextFetchMs = 0;
-      weather.hasData = false;
-      needRefreshNow = true;
-    }
-  }
-
-  if (server.hasArg("brightness")) {
-    int b = server.arg("brightness").toInt();
-    if (b < 1) b = 1;
-    if (b > 255) b = 255;
-    if (b != brightness) {
-      brightness = b;
-      u8g2.setContrast(brightness);
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("busSecs")) {
-    int v = server.arg("busSecs").toInt();
-    if (v < 5) v = 5;
-    if (v > 300) v = 300;
-    uint32_t ms = (uint32_t)v * 1000UL;
-    if (ms != cfg.uiBusMs) {
-      cfg.uiBusMs = ms;
-      UI_BUS_MS = ms;
-      uiChanged = true;
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("weatherSecs")) {
-    int v = server.arg("weatherSecs").toInt();
-    if (v < 3) v = 3;
-    if (v > 120) v = 120;
-    uint32_t ms = (uint32_t)v * 1000UL;
-    if (ms != cfg.uiWeatherMs) {
-      cfg.uiWeatherMs = ms;
-      UI_WEATHER_MS = ms;
-      uiChanged = true;
-      changed = true;
-    }
-  }
-
-  // Sleep fields
-  bool newSleepEnabled = server.hasArg("sleepEnabled"); // checkbox
-  if (newSleepEnabled != cfg.sleepEnabled) {
-    cfg.sleepEnabled = newSleepEnabled;
-    changed = true;
-    sleepChanged = true;
-  }
-
-  if (server.hasArg("sleepMode")) {
-    String m = server.arg("sleepMode");
-    m.trim();
-    bool deep = (m == "deep");
-    if (deep != cfg.sleepDeep) {
-      cfg.sleepDeep = deep;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (server.hasArg("sleepStarts")) {
-    int v = server.arg("sleepStarts").toInt();
-    if (v < 0) v = 0;
-    if (v > 23) v = 23;
-    if ((uint8_t)v != cfg.sleepStarts) {
-      cfg.sleepStarts = (uint8_t)v;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (server.hasArg("sleepEnds")) {
-    int v = server.arg("sleepEnds").toInt();
-    if (v < 0) v = 0;
-    if (v > 23) v = 23;
-    if ((uint8_t)v != cfg.sleepEnds) {
-      cfg.sleepEnds = (uint8_t)v;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (stopChanged) weatherResetOnStopChange();
-  if (changed) saveConfig(cfg);
-
-  appState = haveStop(cfg) ? ST_RUNNING : ST_NEED_STOP;
-
-  if (uiChanged) uiScheduleNext();
-
-  if (needRefreshNow) {
-    drawLoadingScreen("Actualizando...");
-    if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg)) {
-      (void)getEmtBoard();
-    }
-    weatherTick();
-  }
-
-  if (uiScreen == UI_BUS) drawEmtBoard();
-  else drawWeatherScreen();
-
-  String s = htmlHeader("OK");
-  s += "<h2>Guardado</h2>";
-  s += "<p>Cambios aplicados.</p>";
-  if (sleepChanged && cfg.sleepEnabled && cfg.sleepDeep) {
-    s += "<p><b>Nota:</b> Si ahora mismo estas dentro de la ventana de sleep, el dispositivo entrara en deep sleep en pocos segundos.</p>";
-  }
-  s += "<p><a href='/'>Volver</a></p>";
-  s += htmlFooter();
-  server.send(200, contentTypeHtml, s);
-
-  markHealthy();
-}
-
-static void handleRoot() { handleConfigGet(); }
-
-// ---------------------- GitHub OTA Update ----------------------
-// DigiCert High Assurance EV Root CA (Usado por GitHub)
-const char* GITHUB_ROOT_CA = 
-"-----BEGIN CERTIFICATE-----\n"
-"MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQIFAAD\n"
-"ggEBANG9fPCp99cI26+s5N/kH/l7T8xX/u3O42z7K9tJ43O+1CdxX3A6v1O2y3O\n"
-"/* ... (Recortado por brevedad, usaré setInsecure para esta versión para asegurar éxito inmediato) ... */"
-"-----END CERTIFICATE-----\n";
-
-static void checkUpdates() {
-  if (!wifiConnected) return;
-
-  const char* repo = "Karimbelmonte/Pantalla-EMT";
-  String currentVersion = String(VERSION_MAJOR) + "." + String(VERSION_MINOR);
-  
-  // Usamos el cliente global de forma segura
-  globalSecureClient.setInsecure(); // GitHub cambia de CAs a veces, insecuro es más robusto para updates
-
-  Serial.println("Revisando actualizaciones en GitHub: " + String(repo));
-
-  // 1. Consultar la última release
-  String url = "https://api.github.com/repos/" + String(repo) + "/releases/latest";
-  
-  int httpCode = 0;
-  String latestVersion = "";
-  String downloadUrl = "";
-
-  bool ok = httpGetJsonStream(url,
-    [&](HTTPClient& http) {
-      http.addHeader("User-Agent", "ESP32-Pantalla-EMT");
-    },
-    [&](Stream& stream) {
-      StaticJsonDocument<4096> doc;
-      if (deserializeJson(doc, stream)) return;
-      
-      latestVersion = doc["tag_name"].as<String>();
-      // Buscamos el asset que termine en .bin
-      JsonArray assets = doc["assets"].as<JsonArray>();
-      for (JsonObject asset : assets) {
-        String name = asset["name"].as<String>();
-        if (name.endsWith(".bin")) {
-          downloadUrl = asset["browser_download_url"].as<String>();
-          break;
-        }
-      }
-    },
-    httpCode
-  );
-
-  if (httpCode == 200 && !latestVersion.isEmpty() && !downloadUrl.isEmpty()) {
-    latestVersion.trim();
-    if (latestVersion.startsWith("v")) latestVersion = latestVersion.substring(1);
-    
-    Serial.println("------------------------------------");
-    Serial.print("OTA - Versión Local:  '"); Serial.print(currentVersion); Serial.println("'");
-    Serial.print("OTA - Versión GitHub: '"); Serial.print(latestVersion); Serial.println("'");
-    Serial.print("OTA - URL Descarga: "); Serial.println(downloadUrl);
-
-    if (latestVersion != currentVersion) {
-      Serial.println("OTA - ¡DIFERENCIA DETECTADA! Iniciando actualización...");
-      drawLoadingScreen("Actualizando firmware...");
-      
-      // La redirección de GitHub (Amazon S3) requiere seguirla
-      httpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-      t_httpUpdate_return ret = httpUpdate.update(globalSecureClient, downloadUrl);
-
-      switch(ret) {
-        case HTTP_UPDATE_FAILED:
-          Serial.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-          break;
-        case HTTP_UPDATE_NO_UPDATES:
-          Serial.println("HTTP_UPDATE_NO_UPDATES");
-          break;
-        case HTTP_UPDATE_OK:
-          Serial.println("HTTP_UPDATE_OK");
-          break;
-      }
-    } else {
-      Serial.println("Ya tienes la última versión.");
-    }
-  }
-}
-
-static void wmConfigModeCallback(WiFiManager* wm) {
-  (void)wm;
-  drawSetupScreen();
+  if (MDNS.begin(hostname)) MDNS.addService("http", "tcp", 80);
 }
 
 // ---------------------- Setup / Loop ----------------------
 void setup() {
+  Serial.begin(115200);
+  beginBootDiagnostics();
   // OLED init
   u8g2.begin();
   u8g2.setContrast(brightness);
@@ -1728,45 +1095,25 @@ void setup() {
 
   drawStartupScreen("Inicializando...");
 
-  if (!LittleFS.begin(true)) {
+  configFsReady = LittleFS.begin(false);
+  if (!configFsReady) {
     drawStartupScreen("LittleFS ERROR");
     delay(1500);
   }
 
   (void)loadConfig(cfg);
-  if (cfg.emtStopName.isEmpty()) cfg.emtStopName = "EMT Madrid";
-  if (cfg.uiBusMs == 0) cfg.uiBusMs = 45000UL;
-  if (cfg.uiWeatherMs == 0) cfg.uiWeatherMs = 10000UL;
-  // uiBus2Ms: 0 es válido (desactivado)
-  if (cfg.uiBus2Ms > cfg.uiBusMs) cfg.uiBus2Ms = 0UL; // saneado
-
   UI_BUS_MS = cfg.uiBusMs;
   UI_WEATHER_MS = cfg.uiWeatherMs;
   UI_BUS2_MS = cfg.uiBus2Ms;
+  brightness = cfg.manualBrightness;
+  u8g2.setContrast(brightness);
 
   clearBoard();
   weatherResetOnStopChange();
 
-  // WiFi
-  drawStartupScreen("Conectando WiFi...");
-  WiFi.mode(WIFI_MODE_NULL);
-  WiFi.setSleep(WIFI_PS_NONE);
-  WiFi.persistent(true);
-  WiFi.mode(WIFI_STA);
-
-  WiFiManager wm;
-  wm.setAPCallback(wmConfigModeCallback);
-  wm.setWiFiAutoReconnect(true);
-  wm.setConnectTimeout(30);
-  wm.setConnectRetries(3);
-
-  bool ok = wm.autoConnect("Pantalla EMT");
-  if (!ok) ESP.restart();
-
-  while (WiFi.status() != WL_CONNECTED) delay(150);
-  wifiConnected = true;
-
-  updateMyMdns("pantalla-emt");
+  drawStartupScreen("Conectando WiFi guardado...");
+  beginWifi(drawSetupScreen);
+  if (wifiConnected) updateMyMdns("pantalla-emt");
 
   // NTP + TZ España
   configTime(0, 0, ntpServer);
@@ -1774,12 +1121,12 @@ void setup() {
   tzset();
 
   int tries = 0;
-  while (!getLocalTime(&timeinfo) && tries++ < 12) delay(400);
-  if (tries >= 12) drawNoTimeScreen();
+  while (wifiConnected && !getLocalTime(&timeinfo, 0) && tries++ < 12) delay(400);
+  if (tries >= 12 && !wifiPortalActive()) drawNoTimeScreen();
 
   // Routes
   setupWebServer();
-  server.begin();
+  startApplicationServer();
 
   // Init Task WDT (vigila loopTask)
   esp_task_wdt_config_t twdt_config = {
@@ -1787,33 +1134,31 @@ void setup() {
     .idle_core_mask = 0,
     .trigger_panic = true
   };
-  esp_task_wdt_init(&twdt_config);
-  esp_task_wdt_add(NULL);
+  esp_err_t watchdogResult = esp_task_wdt_init(&twdt_config);
+  if (watchdogResult == ESP_ERR_INVALID_STATE) watchdogResult = esp_task_wdt_reconfigure(&twdt_config);
+  if (watchdogResult != ESP_OK) Serial.printf("Task WDT setup error: %d\n", watchdogResult);
+  if (esp_task_wdt_status(NULL) != ESP_OK) {
+    watchdogResult = esp_task_wdt_add(NULL);
+    if (watchdogResult != ESP_OK) Serial.printf("Task WDT registration error: %d\n", watchdogResult);
+  }
 
   uiScreen = UI_BUS;
   uiScheduleNext();
 
   if (!haveStop(cfg)) {
     appState = ST_NEED_STOP;
-    drawNeedStopScreen();
+    if (!wifiPortalActive()) drawNeedStopScreen();
   } else {
     appState = ST_RUNNING;
-    drawStartupScreen("Listo");
+    if (!wifiPortalActive()) drawStartupScreen(wifiConnected ? "Listo" : "WiFi: reintentando sin borrar");
     delay(300);
 
-    nextDataUpdate = 0;
-    nextClockUpdate = 0;
+    nextDataUpdate = millis();
+    nextClockUpdate = millis();
 
-    weather.nextFetchMs = 0;
-    weatherTick();
-
-    drawEmtBoard();
-    
-    // Comprobar actualización al arranque
-    checkUpdates();
+    if (!wifiPortalActive()) { weatherTick(); drawEmtBoard(); }
   }
 
-  markHealthy();
   lastLoopBeatMs = millis();
   nextWdtFeedMs = millis();
 }
@@ -1825,16 +1170,35 @@ void loop() {
     nextWdtFeedMs = millis() + WDT_FEED_PERIOD_MS;
   }
 
-  // --- Latido mínimo ---
-  if (millis() - lastLoopBeatMs >= LOOP_BEAT_MS) {
-    lastHealthyTickMs = millis();
-    lastLoopBeatMs = millis();
+  unsigned long gap = millis() - lastLoopBeatMs;
+  if (gap > maxLoopGapMs) maxLoopGapMs = gap;
+  lastLoopBeatMs = millis();
+
+  bool wasConnected = wifiConnected;
+  wifiTick();
+  if (!wasConnected && wifiConnected) {
+    updateMyMdns("pantalla-emt");
+    configTime(0, 0, ntpServer);
+    setenv("TZ", tzSpain, 1);
+    tzset();
+    resetNetworkRetries();
+  }
+  if (wifiPortalActive()) { delay(5); return; }
+  recordStage(emt::Stage::Web);
+  server.handleClient();
+  recordStage(emt::Stage::Idle);
+
+  static bool otaChecked = false;
+  // Manual updates also work before configuring a stop or during soft sleep.
+  // Defer other work/deep sleep until the queued response has been sent.
+  if (processManualUpdates()) {
+    otaChecked = true;
+    delay(1);
+    return;
   }
 
-  server.handleClient();
-
   if (appState == ST_NEED_STOP) {
-    if (millis() > timer) {
+    if (emt::due(millis(), timer)) {
       drawNeedStopScreen();
       timer = millis() + 4000;
     }
@@ -1845,19 +1209,20 @@ void loop() {
   // -------- Sleep logic (soft/deep) --------
   bool snoozing = isSnoozing();
   if (snoozing) {
+    recordStage(emt::Stage::Sleep);
     if (cfg.sleepDeep) {
       // Intenta deep sleep solo si tienes hora válida
       // Nota: si NTP no está OK, computeSecondsUntilWake falla y hacemos fallback soft.
       enterDeepSleepUntilWake();
       // Si por algún motivo NO se duerme (fallback), seguimos soft:
-      if (millis() > timer) {
+      if (emt::due(millis(), timer)) {
         drawSleepingScreenSoft();
         timer = millis() + 8000;
       }
       delay(1);
       return;
     } else {
-      if (millis() > timer) {
+      if (emt::due(millis(), timer)) {
         drawSleepingScreenSoft();
         timer = millis() + 8000;
       }
@@ -1868,26 +1233,21 @@ void loop() {
     u8g2.setContrast(brightness);
   }
 
-  // Estado WiFi
-  if (WiFi.status() != WL_CONNECTED && wifiConnected) {
-    wifiConnected = false;
-    firstLoad = true;
-  } else if (WiFi.status() == WL_CONNECTED && !wifiConnected) {
-    wifiConnected = true;
-    firstLoad = true;
-    markHealthy();
+  // Check once on the first usable connection, including an offline boot.
+  if (ENABLE_AUTO_OTA && !otaChecked && wifiConnected && haveStop(cfg) && time(nullptr) >= 1704067200) {
+    otaChecked = true;
+    checkUpdates();
   }
-
   // Weather tick
   weatherTick();
 
   // Alternancia pantallas
-  if (millis() > uiNextSwitchMs) {
+  if (emt::due(millis(), uiNextSwitchMs)) {
     // Determinar siguiente estado
     UiScreen next;
     if (uiScreen == UI_BUS) {
       // Pasar a BUS2 solo si está activo Y hay más de 3 grupos disponibles
-      if (UI_BUS2_MS > 0 && countEmtGroups() > 3) {
+      if (busSecondThisCycle) {
         next = UI_BUS2;
       } else {
         next = UI_WEATHER;
@@ -1906,14 +1266,14 @@ void loop() {
   }
 
   // EMT update
-  if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg) && millis() > nextDataUpdate) {
+  if (wifiConnected && appState == ST_RUNNING && haveStop(cfg) && haveCreds(cfg) && emt::due(millis(), nextDataUpdate)) {
     (void)getEmtBoard();
     if (uiScreen == UI_BUS) drawEmtBoard();
     else if (uiScreen == UI_BUS2) drawEmtBoard2();
   }
 
   // Si faltan credenciales, repinta de vez en cuando
-  if (wifiConnected && appState == ST_RUNNING && (!haveCreds(cfg)) && millis() > nextDataUpdate) {
+  if (wifiConnected && appState == ST_RUNNING && (!haveCreds(cfg)) && emt::due(millis(), nextDataUpdate)) {
     nextDataUpdate = millis() + DATAUPDATEINTERVAL;
     if (uiScreen == UI_BUS) drawEmtBoard();
     else if (uiScreen == UI_BUS2) drawEmtBoard2();
@@ -1941,8 +1301,6 @@ void loop() {
   if (delayMs > 0) delay((uint32_t)delayMs);
   refreshTimer = millis();
 
-  // Soft watchdog (último)
-  if (lastHealthyTickMs != 0 && (millis() - lastHealthyTickMs) > SOFT_WDT_MS) {
-    ESP.restart();
-  }
+  recordStage(emt::Stage::Idle);
+  // Task WDT detects a blocked task; stale remote data must not reboot the ESP32.
 }

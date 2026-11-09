@@ -1,0 +1,13 @@
+{
+  "scripts/test_native.sh": "0f8941110092b6598bf55be77ce92bd0e564caacac2eed49cc62427bacc74a3b",
+  "scripts/validate_build.py": "7eb88c636947940a15d426ae5aeca067e2cc5d31c67e93dbfada4f7d03c53697",
+  "tests/fakes/Arduino.h": "203fe85131058966575cdcbbe9650521bf5e75251e54b3f9f18f287b2ff66db7",
+  "tests/fakes/U8g2lib.h": "e793154e015914f8632eb55012a6eaa3f6fac3a901421e72ec0b48aa8d907b78",
+  "tests/fakes/WebServer.h": "e3956565ef87fcdcbffef66e4ef3449cfbc23a060fc07d4c39cd8cd5a3b56aa5",
+  "tests/fakes/WiFi.h": "1b531a5484f6dca437cd8f1a0a5cbe384831f56c4588a2f388174c1f26e54c5d",
+  "tests/test_board.cpp": "e66c82893b2198f74d1ff822e18cb9fcbc0bf61067a9b40f4e66598fc4e87c23",
+  "tests/test_config.cpp": "9687638a70ab380a819f8d16be1c28a2689fc4f516f204f5a48b8b8631fc2e5e",
+  "tests/test_ota.cpp": "2b1c083d589ce52377396fb32b990fda2243716870c78c8b7835a20e7d3cf718",
+  "tests/test_runtime.cpp": "6a6d92f4fcd667bee04a578af12dcaee159fe550914d5e7402ca06a755f08714",
+  "tests/test_web.cpp": "1281c3450d66a26c3f75ae85e00dcbe621c768d413e0cb385890514f901b1b2d"
+}

@@ -2,44 +2,19 @@
 #include "web_server.h"
 #include <WiFi.h>
 
-#define VERSION_MAJOR 0
-#define VERSION_MINOR 12
-
-extern const int WDT_TIMEOUT_S;
-extern const unsigned long SOFT_WDT_MS;
-extern unsigned long lastHealthyTickMs;
+#include "firmware_version.h"
+#include "wifi_connection.h"
+#include "boot_diagnostics.h"
+#include "ota_control.h"
+#include <esp_random.h>
 
 static String htmlHeader(const char* title);
 static String htmlFooter();
-
-static bool isInSleepWindow(uint8_t h, uint8_t startH, uint8_t endH) {
-  if (startH == endH) return true;
-  if (startH > endH) return (h >= startH) || (h < endH);
-  return (h >= startH) && (h < endH);
-}
-
-static bool computeSecondsUntilWake(uint32_t& outSeconds) {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) return false;
-  struct tm nowTm = timeinfo;
-  time_t nowT = mktime(&nowTm);
-  if (nowT == (time_t)-1) return false;
-  struct tm wakeTm = nowTm;
-  wakeTm.tm_hour = cfg.sleepEnds;
-  wakeTm.tm_min = 0;
-  wakeTm.tm_sec = 5;
-  time_t wakeT = mktime(&wakeTm);
-  if (wakeT == (time_t)-1) return false;
-  if (difftime(wakeT, nowT) <= 0) {
-    wakeTm.tm_mday += 1;
-    wakeT = mktime(&wakeTm);
-    if (wakeT == (time_t)-1) return false;
-  }
-  double diff = difftime(wakeT, nowT);
-  if (diff < 10) diff = 10;
-  if (diff > (double)(7UL * 24UL * 3600UL)) diff = (double)(7UL * 24UL * 3600UL);
-  outSeconds = (uint32_t)diff;
-  return true;
+static char otaFormToken[33] = {};
+static String htmlEscape(String value) {
+  value.replace("&", "&amp;"); value.replace("<", "&lt;"); value.replace(">", "&gt;");
+  value.replace("\"", "&quot;"); value.replace("'", "&#39;");
+  return value;
 }
 
 static void sendResponse(int code, const String& msg) {
@@ -60,9 +35,24 @@ static void handleInfo() {
   s += "    <div class=\"header\">\n";
   s += "      <h1>Estado del Sistema ⚙️</h1>\n";
   s += "    </div>\n";
-  
+
   s += "    <div class=\"card\">\n";
   s += "      <h3>General</h3>\n";
+  s += "<p>Mayor intervalo del bucle: " + String(maxLoopGapMs) + " ms</p>";
+  s += "<p>Firmware: " FIRMWARE_VERSION "</p>";
+  s += "<p>Motivo de este arranque: " + htmlEscape(String(bootResetReason())) + "</p>";
+  s += "<p>Operación anterior al reinicio: " + htmlEscape(String(bootPreviousStage())) + "</p>";
+  s += "<p>Reinicio solicitado: " + htmlEscape(String(bootPreviousIntent())) + "</p>";
+  if (bootHasPreviousTrace()) s += "<p>Tiempo activo anterior: " + String(bootPreviousUptimeMs()/1000) + " s</p>";
+  s += "<p>WiFi al arrancar: " + htmlEscape(String(wifiCredentialsAtBoot())) + "</p>";
+  s += "<p>Desconexiones WiFi en este arranque: " + String(wifiDisconnectCount()) + "</p>";
+  s += "<p>Último código de desconexión WiFi: " + String(wifiLastDisconnectReason()) + "</p>";
+  if (!wifiConnected) s += "<p>Reintento WiFi en: " + String(wifiRetryInMs()/1000) + " s</p>";
+
+  s += "<p>OTA: " + htmlEscape(otaStatus) + "</p>";
+  s += "<p>Instalación automática: " + String(ENABLE_AUTO_OTA ? "activada" : "desactivada") + "</p>";
+  s += "<p><a href=\"/update\">Actualizar por WiFi</a></p>";
+  s += "<p>Configuración: " + (configError.isEmpty() ? String("OK") : htmlEscape(configError)) + "</p>";
   s += "      <p><b>WiFi:</b> " + String(wifiConnected ? "Conectado ✅" : "Desconectado ❌") + "</p>\n";
   s += "      <p><b>RSSI:</b> " + String(WiFi.RSSI()) + " dB</p>\n";
   s += "      <p><b>Uptime:</b> " + String(uptimeStr) + "</p>\n";
@@ -73,10 +63,10 @@ static void handleInfo() {
 
   s += "    <div class=\"card\">\n";
   s += "      <h3>EMT Madrid</h3>\n";
-  s += "      <p><b>Parada:</b> " + cfg.emtStopId + " (" + cfg.emtStopName + ")</p>\n";
+  s += "      <p><b>Parada:</b> " + htmlEscape(cfg.emtStopId) + " (" + htmlEscape(String(displayStopName())) + ")</p>\n";
   s += "      <p><b>Token:</b> " + String(emtAccessToken.isEmpty() ? "No disponible ❌" : "Activo ✅") + "</p>\n";
   if (!emtLastErrorMsg.isEmpty()) {
-    s += "      <p style=\"color: #e74c3c;\"><b>Último Error:</b> " + emtLastErrorMsg + "</p>\n";
+    s += "      <p style=\"color: #e74c3c;\"><b>Último Error:</b> " + htmlEscape(emtLastErrorMsg) + "</p>\n";
   }
   s += "    </div>\n";
 
@@ -89,32 +79,38 @@ static void handleInfo() {
     struct tm *tm_sr = localtime(&sr);
     strftime(buf, sizeof(buf), "%H:%M:%S", tm_sr);
     s += "      <p><b>Amanecer:</b> " + String(buf) + "</p>\n";
-    
+
     time_t ss = (time_t)weather.sunset;
     struct tm *tm_ss = localtime(&ss);
     strftime(buf, sizeof(buf), "%H:%M:%S", tm_ss);
     s += "      <p><b>Atardecer:</b> " + String(buf) + "</p>\n";
   }
   if (!weather.lastError.isEmpty()) {
-    s += "      <p style=\"color: #e74c3c;\"><b>Error Clima:</b> " + weather.lastError + "</p>\n";
+    s += "      <p style=\"color: #e74c3c;\"><b>Error Clima:</b> " + htmlEscape(weather.lastError) + "</p>\n";
   }
   s += "    </div>\n";
 
   s += "    <div class=\"card\">\n";
   s += "      <h3>Estadísticas</h3>\n";
+  s += "<p>Próximo detalle EMT: " + String(stopRetry.remaining(millis())/1000) + " s</p>";
+  s += "<p>Próximo intento clima: " + String(weatherRetry.remaining(millis())/1000) + " s</p>";
+  s += "<p>Espera autenticación EMT: " + String(authRetry.remaining(millis())/1000) + " s</p>";
+  s += "<p>Edad clima: " + (weather.hasData ? String((millis()-weather.lastFetchMs)/1000) + " s" : String("Sin datos")) + "</p>";
+
   s += "      <p><b>Cargas OK:</b> " + String(dataLoadSuccess) + "</p>\n";
   s += "      <p><b>Fallos:</b> " + String(dataLoadFailure) + "</p>\n";
-  s += "      <p><b>Última Carga:</b> " + String((millis() - lastDataLoadTime)/1000) + "s agó</p>\n";
+  s += "      <p><b>Última Carga:</b> " + (dataLoadSuccess > 0 ? String((millis() - lastDataLoadTime)/1000) + " s" : String("Sin datos")) + "</p>\n";
   s += "    </div>\n";
 
   s += "    <a href=\"/\" class=\"btn-submit\" style=\"text-decoration:none; display:block; text-align:center; margin-top:20px;\">Volver al Inicio</a>\n";
-  
+
   s += "  </div>\n";
   s += htmlFooter();
   server.send(200, contentTypeHtml, s);
 }
 
 static void handleReboot() {
+  recordRestartIntent(emt::RestartIntent::Web);
   sendResponse(200, "Reiniciando...");
   delay(400);
   ESP.restart();
@@ -157,7 +153,7 @@ static String htmlHeader(const char* title) {
   s += "<head>\n";
   s += "    <meta charset=\"utf-8\">\n";
   s += "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n";
-  s += "    <title>Pantalla EMT - Configuración</title>\n";
+  s += "    <title>" + htmlEscape(String(title)) + "</title>\n";
   s += "    <link href=\"https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap\" rel=\"stylesheet\">\n";
   s += "    <style>\n";
   s += "        /* Estilos base: Solar Punk & Transporte */\n";
@@ -455,11 +451,11 @@ static void handleConfigGet() {
   s += "      </h3>\n";
   s += "      <div class=\"form-group\">\n";
   s += "        <label>ID de la Parada (StopId)</label>\n";
-  s += "        <input type=\"number\" name=\"stopId\" value=\"" + cfg.emtStopId + "\">\n";
+  s += "        <input type=\"number\" name=\"stopId\" value=\"" + htmlEscape(cfg.emtStopId) + "\">\n";
   s += "      </div>\n";
   s += "      <div class=\"form-group\">\n";
-  s += "        <label>Nombre en pantalla (Opcional)</label>\n";
-  s += "        <input type=\"text\" name=\"stopName\" value=\"" + cfg.emtStopName + "\">\n";
+  s += "        <label>Nombre de Parada (Opcional ✨)</label>\n";
+  s += "        <input type=\"text\" name=\"stopName\" value=\"" + htmlEscape(cfg.emtStopName) + "\" placeholder=\"Ej: Cibeles (Dejar vacío para auto)\">\n";
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <div class=\"card\">\n";
@@ -469,11 +465,11 @@ static void handleConfigGet() {
   s += "      </h3>\n";
   s += "      <div class=\"form-group\">\n";
   s += "        <label>Correo Electrónico</label>\n";
-  s += "        <input type=\"text\" name=\"emtEmail\" value=\"" + cfg.emtEmail + "\">\n";
+  s += "        <input type=\"text\" name=\"emtEmail\" value=\"" + htmlEscape(cfg.emtEmail) + "\">\n";
   s += "      </div>\n";
   s += "      <div class=\"form-group\">\n";
   s += "        <label>Contraseña</label>\n";
-  s += "        <input type=\"password\" name=\"emtPassword\" value=\"" + cfg.emtPassword + "\">\n";
+  s += "        <input type=\"password\" name=\"emtPassword\" value=\"" + htmlEscape(cfg.emtPassword) + "\">\n";
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <div class=\"card\">\n";
@@ -483,7 +479,7 @@ static void handleConfigGet() {
   s += "      </h3>\n";
   s += "      <div class=\"form-group\">\n";
   s += "        <label>OpenWeather API Key</label>\n";
-  s += "        <input type=\"text\" name=\"weatherKey\" value=\"" + cfg.weatherApiKey + "\">\n";
+  s += "        <input type=\"text\" name=\"weatherKey\" value=\"" + htmlEscape(cfg.weatherApiKey) + "\">\n";
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <div class=\"card\">\n";
@@ -492,8 +488,8 @@ static void handleConfigGet() {
   s += "        OLED & Tiempos\n";
   s += "      </h3>\n";
   s += "      <div class=\"form-group\">\n";
-  s += "        <label>Brillo del panel (1-255)</label>\n";
-  s += "        <input type=\"number\" name=\"brightness\" value=\"" + String(brightness) + "\">\n";
+  s += "        <label>Brillo manual guardado (1-255)</label>\n";
+  s += "        <input type=\"number\" name=\"brightness\" value=\"" + String(cfg.manualBrightness) + "\">\n";
   s += "      </div>\n";
   s += "      <div style=\"display:flex; gap:16px;\">\n";
   s += "        <div class=\"form-group\" style=\"flex:1;\">\n";
@@ -508,7 +504,7 @@ static void handleConfigGet() {
   s += "      <div class=\"form-group\">\n";
   s += "        <label>Bus pág.2 (seg, 0=desactivado)</label>\n";
   s += "        <input type=\"number\" name=\"busSecs2\" id=\"busSecs2\" value=\"" + String(cfg.uiBus2Ms / 1000UL) + "\" min=\"0\" oninput=\"validateBus2()\">\n";
-  s += "        <p id=\"bus2Error\" style=\"color:#e53e3e;display:none;font-size:0.85rem;margin:6px 0 0;padding:8px 12px;background:rgba(229,62,62,0.08);border-radius:8px;border:1px solid rgba(229,62,62,0.25);\">\n          ⚠️ Para aumentar el tiempo de la segunda pantalla, primero aumenta el tiempo dedicado a las pantallas de bus.\n        </p>\n";
+  s += "        <p id=\"bus2Error\" style=\"color:#e53e3e;display:none;font-size:0.85rem;margin:6px 0 0;padding:8px 12px;background:rgba(229,62,62,0.08);border-radius:8px;border:1px solid rgba(229,62,62,0.25);\">\n          ⚠️ Para aumentar el tiempo de la segunda pantalla, deja al menos 5 segundos para la primera pantalla de bus.\n        </p>\n";
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <div class=\"card\">\n";
@@ -575,7 +571,10 @@ static void handleConfigGet() {
   s += "      </div>\n";
   s += "    </div>\n";
   s += "    <button type=\"submit\" id=\"btnSubmit\" class=\"btn-submit\">Guardar Configuración 🌿</button>\n";
+  s += "<input type=\"hidden\" name=\"fullForm\" value=\"1\">";
   s += "  </form>\n";
+  s += "<p><a href=\"/update\" class=\"btn-submit\" style=\"display:block;text-align:center;text-decoration:none\">Actualizar por WiFi</a></p>";
+  s += "<form method=\"POST\" action=\"/wifi/setup\" style=\"margin-top:16px\"><button type=\"submit\" class=\"btn-submit\">Cambiar red WiFi</button></form>";
   s += "  <div id=\"toast\">Configuración guardada correctamente ✨</div>\n";
   s += "  <script>\n";
   s += "    function validateBus2() {\n";
@@ -584,7 +583,7 @@ static void handleConfigGet() {
   s += "      var err = document.getElementById('bus2Error');\n";
   s += "      var inp = document.getElementById('busSecs2');\n";
   s += "      var btn = document.getElementById('btnSubmit');\n";
-  s += "      var invalid = bus2 > bus;\n";
+  s += "      var invalid = bus2 > Math.max(0, bus - 5);\n";
   s += "      err.style.display = invalid ? 'block' : 'none';\n";
   s += "      inp.style.borderColor = invalid ? '#e53e3e' : '';\n";
   s += "      inp.style.boxShadow = invalid ? '0 0 0 4px rgba(229,62,62,0.15)' : '';\n";
@@ -622,14 +621,14 @@ static void handleConfigGet() {
   s += "    };\n";
   s += "  </script>\n";
   s.replace("<!-- checked_combine_arrivals -->", cfg.combineArrivals ? "checked" : "");
-  
+
   s += "  <div class=\"card\" style=\"margin-top:24px; text-align:center;\">\n";
   s += "    <h3 style=\"margin-bottom:12px; justify-content:center; border-bottom:none;\">Acciones del Sistema</h3>\n";
   s += "    <p style=\"font-size:0.9rem; color:var(--text-muted); margin-bottom:20px;\">Controles avanzados para el diagnóstico y estado de la pantalla.</p>\n";
   s += "    <div class=\"footer-links\" style=\"flex-direction:column; gap:12px; margin-top:0;\">\n";
   s += "      <a href=\"/info\" style=\"display:flex; flex-direction:column; padding:12px;\">\n";
   s += "        <span style=\"font-size:1.1rem;\">/info Sistema</span>\n";
-  s += "        <span style=\"font-size:0.8rem; font-weight:normal; opacity:0.8; margin-top:4px;\">Muestra el estado interno, memoria RAM, versión y conexión WiFi.</span>\n";
+  s += "        <span style=\"font-size:0.8rem; font-weight:normal; opacity:0.8; margin-top:4px;\">Muestra versión, conexión WiFi, errores y antigüedad de los datos.</span>\n";
   s += "      </a>\n";
   s += "      <a href=\"/reboot\" style=\"display:flex; flex-direction:column; padding:12px;\">\n";
   s += "        <span style=\"font-size:1.1rem;\">Reiniciar Panel</span>\n";
@@ -648,202 +647,101 @@ static void handleConfigGet() {
 
 
 static void handleConfigPost() {
-  bool changed = false;
-  bool needRefreshNow = false;
-  bool stopChanged = false;
-  bool uiChanged = false;
-  bool sleepChanged = false;
-
-  if (server.hasArg("stopId")) {
-    String newStop = server.arg("stopId");
-    newStop.trim();
-    if (newStop != cfg.emtStopId) {
-      cfg.emtStopId = newStop;
-      clearBoard();
-      nextDataUpdate = 0;
-      changed = true;
-      needRefreshNow = true;
-      stopChanged = true;
-    }
+  AppConfig candidate = cfg;
+  auto textField = [&](const char* key, String& value) {
+    if (server.hasArg(key)) { value = server.arg(key); value.trim(); }
+  };
+  textField("stopId", candidate.emtStopId);
+  textField("stopName", candidate.emtStopName);
+  textField("emtEmail", candidate.emtEmail);
+  if (server.hasArg("emtPassword")) candidate.emtPassword = server.arg("emtPassword");
+  textField("weatherKey", candidate.weatherApiKey);
+  auto number = [&](const char* key, int current, int lo, int hi) {
+    return server.hasArg(key) ? emt::bounded(static_cast<int>(server.arg(key).toInt()), lo, hi) : current;
+  };
+  candidate.manualBrightness = number("brightness", candidate.manualBrightness, 1, 255);
+  candidate.brightnessDay = number("brightnessDay", candidate.brightnessDay, 1, 255);
+  candidate.brightnessNight = number("brightnessNight", candidate.brightnessNight, 1, 255);
+  candidate.uiBusMs = number("busSecs", candidate.uiBusMs/1000, 5, 300) * 1000UL;
+  candidate.uiWeatherMs = number("weatherSecs", candidate.uiWeatherMs/1000, 3, 120) * 1000UL;
+  candidate.uiBus2Ms = number("busSecs2", candidate.uiBus2Ms/1000, 0, 300) * 1000UL;
+  candidate.sleepStarts = number("sleepStarts", candidate.sleepStarts, 0, 23);
+  candidate.sleepEnds = number("sleepEnds", candidate.sleepEnds, 0, 23);
+  // A marker distinguishes a full HTML form (unchecked boxes are absent)
+  // from a partial API update, which must preserve omitted preferences.
+  if (server.hasArg("fullForm") || server.hasArg("autoBrightness")) candidate.autoBrightness = server.hasArg("autoBrightness");
+  if (server.hasArg("fullForm") || server.hasArg("combineArrivals")) candidate.combineArrivals = server.hasArg("combineArrivals");
+  if (server.hasArg("fullForm") || server.hasArg("sleepEnabled")) candidate.sleepEnabled = server.hasArg("sleepEnabled");
+  if (server.hasArg("sleepMode")) candidate.sleepDeep = server.arg("sleepMode") == "deep";
+  emt::normalize(candidate);
+  if (!emt::commitConfig(candidate, saveConfig, applyConfig)) {
+    sendResponse(500, configError);
+    return;
   }
+  sendResponse(200, "OK");
+}
 
-  if (server.hasArg("stopName")) {
-    String newName = server.arg("stopName");
-    newName.trim();
-    if (newName.isEmpty()) newName = "EMT Madrid";
-    if (newName != cfg.emtStopName) {
-      cfg.emtStopName = newName;
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("emtEmail")) {
-    String v = server.arg("emtEmail");
-    v.trim();
-    if (v != cfg.emtEmail) {
-      cfg.emtEmail = v;
-      changed = true;
-      needRefreshNow = true;
-      emtAccessToken = "";
-    }
-  }
-
-  if (server.hasArg("emtPassword")) {
-    String v = server.arg("emtPassword");
-    v.trim();
-    if (v != cfg.emtPassword) {
-      cfg.emtPassword = v;
-      changed = true;
-      needRefreshNow = true;
-      emtAccessToken = "";
-    }
-  }
-
-  if (server.hasArg("weatherKey")) {
-    String v = server.arg("weatherKey");
-    v.trim();
-    if (v != cfg.weatherApiKey) {
-      cfg.weatherApiKey = v;
-      changed = true;
-      weather.nextFetchMs = 0;
-      weather.hasData = false;
-      needRefreshNow = true;
-    }
-  }
-
-  if (server.hasArg("brightness")) {
-    int b = server.arg("brightness").toInt();
-    if (b < 1) b = 1;
-    if (b > 255) b = 255;
-    if (b != brightness) {
-      brightness = b;
-      u8g2.setContrast(brightness);
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("busSecs")) {
-    int v = server.arg("busSecs").toInt();
-    if (v < 5) v = 5;
-    if (v > 300) v = 300;
-    uint32_t ms = (uint32_t)v * 1000UL;
-    if (ms != cfg.uiBusMs) {
-      cfg.uiBusMs = ms;
-      uiChanged = true;
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("weatherSecs")) {
-    int v = server.arg("weatherSecs").toInt();
-    if (v < 3) v = 3;
-    if (v > 120) v = 120;
-    uint32_t ms = (uint32_t)v * 1000UL;
-    if (ms != cfg.uiWeatherMs) {
-      cfg.uiWeatherMs = ms;
-      uiChanged = true;
-      changed = true;
-    }
-  }
-
-  if (server.hasArg("busSecs2")) {
-    int v = server.arg("busSecs2").toInt();
-    if (v < 0) v = 0;
-    // Restricción: bus2 no puede superar el tiempo total de bus
-    uint32_t maxBus2 = cfg.uiBusMs / 1000UL;
-    if ((uint32_t)v > maxBus2) v = (int)maxBus2;
-    uint32_t ms = (uint32_t)v * 1000UL;
-    if (ms != cfg.uiBus2Ms) {
-      cfg.uiBus2Ms = ms;
-      UI_BUS2_MS = ms;
-      uiChanged = true;
-      changed = true;
-    }
-  }
-
-  bool newAutoBrightness = server.hasArg("autoBrightness");
-  if (newAutoBrightness != cfg.autoBrightness) {
-    cfg.autoBrightness = newAutoBrightness;
-    changed = true;
-  }
-
-  if (server.hasArg("brightnessDay")) {
-    int v = server.arg("brightnessDay").toInt();
-    if (v < 1) v = 1; if (v > 255) v = 255;
-    if (v != cfg.brightnessDay) { cfg.brightnessDay = v; changed = true; }
-  }
-
-  if (server.hasArg("brightnessNight")) {
-    int v = server.arg("brightnessNight").toInt();
-    if (v < 1) v = 1; if (v > 255) v = 255;
-    if (v != cfg.brightnessNight) { cfg.brightnessNight = v; changed = true; }
-  }
-
-  bool newSleepEnabled = server.hasArg("sleepEnabled");
-  if (newSleepEnabled != cfg.sleepEnabled) {
-    cfg.sleepEnabled = newSleepEnabled;
-    changed = true;
-    sleepChanged = true;
-  }
-
-  bool newCombineArrivals = server.hasArg("combineArrivals");
-  if (newCombineArrivals != cfg.combineArrivals) {
-    cfg.combineArrivals = newCombineArrivals;
-    changed = true;
-    needRefreshNow = true;
-  }
-
-  if (server.hasArg("sleepMode")) {
-    String m = server.arg("sleepMode");
-    m.trim();
-    bool deep = (m == "deep");
-    if (deep != cfg.sleepDeep) {
-      cfg.sleepDeep = deep;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (server.hasArg("sleepStarts")) {
-    int v = server.arg("sleepStarts").toInt();
-    if (v < 0) v = 0;
-    if (v > 23) v = 23;
-    if ((uint8_t)v != cfg.sleepStarts) {
-      cfg.sleepStarts = (uint8_t)v;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (server.hasArg("sleepEnds")) {
-    int v = server.arg("sleepEnds").toInt();
-    if (v < 0) v = 0;
-    if (v > 23) v = 23;
-    if ((uint8_t)v != cfg.sleepEnds) {
-      cfg.sleepEnds = (uint8_t)v;
-      changed = true;
-      sleepChanged = true;
-    }
-  }
-
-  if (stopChanged) weatherResetOnStopChange();
-  if (changed) {
-    saveConfig(cfg);
-    nextDataUpdate = 0; // Forzar actualización de datos en el siguiente loop
-    uiNextSwitchMs = 0;   // Forzar refresco de pantalla
-  }
-
-  appState = haveStop(cfg) ? ST_RUNNING : ST_NEED_STOP;
-
-  if (uiChanged) uiScheduleNext();
-
-  server.send(200, contentTypeText, "OK");
-  markHealthy();
+static void handleWifiSetup() {
+  sendResponse(200, "Abriendo configuración WiFi. Conecta a Pantalla EMT y abre 192.168.4.1. La red anterior no se borra por abrir el portal.");
+  requestWifiSetup();
 }
 
 static void handleRoot() { handleConfigGet(); }
 
+static void sendUpdatePage(int status = 200, const String& error = "") {
+  String s = htmlHeader("Actualizar por WiFi");
+  s += "<body><main class=\"container\"><h1>Actualizar por WiFi</h1><div class=\"card\">";
+  s += "<p>Versión instalada: <b>" FIRMWARE_VERSION "</b></p>";
+  s += "<p>Estado: " + htmlEscape(otaStatus) + "</p>";
+  if (!error.isEmpty()) s += "<p role=\"alert\">" + htmlEscape(error) + "</p>";
+  s += "<p>Busca una versión nueva y confirma para descargarla e instalarla. La pantalla se reiniciará al terminar. La actualización conserva la red WiFi y la configuración.</p>";
+  if (otaBusy()) {
+    s += "<p role=\"status\">Solicitud en curso. Mantén la alimentación. Durante la descarga la pantalla y esta web pueden tardar en responder.</p>";
+    s += "<p><a href=\"/update\">Consultar resultado</a></p>";
+    s += "<script>setTimeout(function(){location.replace('/update');},5000);</script>";
+  } else {
+    if (otaCanInstall()) {
+      String version = htmlEscape(otaAvailableVersion());
+      s += "<form method=\"POST\" action=\"/update/install\"><input type=\"hidden\" name=\"token\" value=\"" + String(otaFormToken) + "\">";
+      s += "<input type=\"hidden\" name=\"version\" value=\"" + version + "\"><p>Disponible: <b>" + version + "</b></p>";
+      s += "<button class=\"btn-submit\" type=\"submit\">Descargar e instalar " + version + "</button></form>";
+    }
+    s += "<form method=\"POST\" action=\"/update/check\" style=\"margin-top:16px\"><input type=\"hidden\" name=\"token\" value=\"" + String(otaFormToken) + "\">";
+    s += "<button class=\"btn-submit\" type=\"submit\">Buscar actualización</button></form>";
+  }
+  s += "</div><p><a href=\"/\">Volver a configuración</a></p></main>";
+  s += htmlFooter();
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(status, contentTypeHtml, s);
+}
+
+static bool validUpdateForm() {
+  if (otaFormToken[0] && server.hasArg("token") && server.arg("token") == otaFormToken) return true;
+  sendUpdatePage(403, "Formulario caducado o no válido. Abre de nuevo esta página.");
+  return false;
+}
+
+static void handleUpdateCheck() {
+  if (!validUpdateForm()) return;
+  if (!wifiConnected) { sendUpdatePage(503, "Sin conexión WiFi. Espera a que se reconecte."); return; }
+  if (!requestOtaCheck()) { sendUpdatePage(409, "Ya hay una solicitud en curso."); return; }
+  sendUpdatePage(202);
+}
+
+static void handleUpdateInstall() {
+  if (!validUpdateForm()) return;
+  if (!wifiConnected) { sendUpdatePage(503, "Sin conexión WiFi. Espera a que se reconecte."); return; }
+  if (!requestOtaInstall(server.arg("version"))) {
+    sendUpdatePage(409, "La versión ya no está disponible, la consulta caducó o hay otra solicitud en curso. Busca de nuevo.");
+    return;
+  }
+  sendUpdatePage(202);
+}
+
 void setupWebServer() {
+  uint8_t randomBytes[16];
+  esp_fill_random(randomBytes, sizeof(randomBytes));
+  for (size_t i = 0; i < sizeof(randomBytes); ++i) snprintf(otaFormToken + 2*i, 3, "%02x", randomBytes[i]);
   server.on("/", HTTP_GET, handleRoot);
   server.on("/info", HTTP_GET, handleInfo);
   server.on("/reboot", HTTP_GET, handleReboot);
@@ -851,4 +749,8 @@ void setupWebServer() {
   server.on("/sleepnow", HTTP_GET, handleSleepNow);
   server.on("/config", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
+  server.on("/wifi/setup", HTTP_POST, handleWifiSetup);
+  server.on("/update", HTTP_GET, [](){ sendUpdatePage(); });
+  server.on("/update/check", HTTP_POST, handleUpdateCheck);
+  server.on("/update/install", HTTP_POST, handleUpdateInstall);
 }

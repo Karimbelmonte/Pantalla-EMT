@@ -1,0 +1,2 @@
+config: legacy/defaults, ranges, JSON roundtrip, failed write/read/rename and commit PASS
+runtime: deadlines, capped backoff, shared gate, failures and recovery PASS

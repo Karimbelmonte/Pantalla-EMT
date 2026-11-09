@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include <U8g2lib.h>
 #include <stationData.h>
+#include "runtime_policy.h"
 
 // ---------------------- Pantalla / OLED ----------------------
 #define SCREEN_WIDTH 256
@@ -22,39 +23,17 @@ extern const char contentTypeHtml[];
 extern char displayedTime[16];
 
 // ---------------------- Config persistente ----------------------
-struct AppConfig {
-  // MobilityLabs BASIC
-  String emtEmail;
-  String emtPassword;
-
-  // EMT
-  String emtStopId;
-  String emtStopName;
-
-  // OpenWeather
-  String weatherApiKey;
-
-  // Duraciones UI
-  uint32_t uiBusMs;
-  uint32_t uiWeatherMs;
-  uint32_t uiBus2Ms;   // 0 = desactivado
-
-  // Sleep
-  bool sleepEnabled;
-  bool sleepDeep;        // true = deep sleep, false = sleep suave (pantalla dim, sigue vivo)
-  uint8_t sleepStarts;   // 0..23
-  uint8_t sleepEnds;     // 0..23
-
-  // UI preferences
-  bool combineArrivals;
-
-  // Auto Brightness
-  bool autoBrightness;
-  int brightnessDay;
-  int brightnessNight;
-};
+#include "config_model.h"
+using AppConfig = emt::Config<String>;
+extern bool configFsReady;
+extern String configError;
+void applyConfig(const AppConfig& candidate);
+const char* displayStopName();
+extern emt::RetrySchedule stopRetry;
 
 extern AppConfig cfg;
+extern String otaStatus;
+void checkUpdates();
 
 // ---------------------- Estado del sistema ----------------------
 enum AppState : uint8_t {
@@ -64,8 +43,8 @@ enum AppState : uint8_t {
 };
 extern AppState appState;
 
+extern unsigned long maxLoopGapMs;
 extern bool wifiConnected;
-extern bool firstLoad;
 
 extern int brightness;
 
@@ -106,7 +85,6 @@ struct WeatherState {
   char desc[48] = "";
   char icon[8] = "";
 
-  unsigned long nextFetchMs = 0;
   unsigned long lastFetchMs = 0;
 
   uint32_t sunrise = 0;
@@ -115,6 +93,9 @@ struct WeatherState {
   String lastError = "";
 };
 extern WeatherState weather;
+extern emt::RetrySchedule weatherRetry;
+extern emt::RetrySchedule authRetry;
+void resetNetworkRetries();
 #define WEATHER_UPDATE_INTERVAL_MS (10UL * 60UL * 1000UL)
 
 // ---------------------- UI alternancia ----------------------
@@ -128,8 +109,6 @@ extern uint32_t UI_BUS2_MS;
 
 // ---------------------- Declaraciones de funciones ----------------------
 void uiScheduleNext();
-void uiToggleScreen();
-void markHealthy();
 
 bool loadConfig(AppConfig& out);
 bool saveConfig(const AppConfig& in);

@@ -1,0 +1,5 @@
+board: grouping, page timing, wrap, manual/auto fallback and EMT detail parser PASS
+config: legacy/defaults, ranges, JSON roundtrip, failed write/read/rename and commit PASS
+ota: numeric versions, exact unique asset, size/digest/URL checks, interrupted/stalled/write-failed transfers PASS
+runtime: deadlines, capped backoff, shared gate, failures and recovery PASS
+web: real routes, failed persistence, partial/full forms, automatic name, manual brightness and escaping PASS

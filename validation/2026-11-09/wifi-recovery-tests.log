@@ -1,0 +1,7 @@
+board: grouping, page timing, wrap, manual/auto fallback and EMT detail parser PASS
+boot: actual diagnostic module, watchdog stage, requested reset and invalidation after power/brownout PASS
+config: legacy/defaults, ranges, JSON roundtrip, failed write/read/rename and commit PASS
+ota: numeric versions, exact unique asset, size/digest/URL checks, interrupted/stalled/write-failed transfers PASS
+runtime: deadlines, capped backoff, shared gate, failures and recovery PASS
+web: real routes, failed persistence, partial/full forms, automatic name, manual brightness and escaping PASS
+wifi: saved/absent/unknown credentials, 24h simulated outage, recovery, manual portal, button and RTC trace PASS

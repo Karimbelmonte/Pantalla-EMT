@@ -1,0 +1,16 @@
+{
+  "tests/fakes/Arduino.h": "33a29be9ef7832a76c88a1e59a6411a39f51f566d9c8486cff924b1948a0a776",
+  "tests/fakes/U8g2lib.h": "e793154e015914f8632eb55012a6eaa3f6fac3a901421e72ec0b48aa8d907b78",
+  "tests/fakes/WebServer.h": "e3956565ef87fcdcbffef66e4ef3449cfbc23a060fc07d4c39cd8cd5a3b56aa5",
+  "tests/fakes/WiFi.h": "1b531a5484f6dca437cd8f1a0a5cbe384831f56c4588a2f388174c1f26e54c5d",
+  "tests/fakes/esp_attr.h": "adb4a146999ad0ff7280f30ba10d4e06edb1c1d2c71144748d92318d929bf4b5",
+  "tests/fakes/esp_system.h": "a4df5adc908055eb734cff1a164f06dda1e2874cfe750213e0845504e242aaba",
+  "tests/test_board.cpp": "e66c82893b2198f74d1ff822e18cb9fcbc0bf61067a9b40f4e66598fc4e87c23",
+  "tests/test_boot.cpp": "5d8a7f853c19a1f56a9860f4de1eab1a3a7cb798a638dc9b81d441cc314f5d2d",
+  "tests/test_config.cpp": "9687638a70ab380a819f8d16be1c28a2689fc4f516f204f5a48b8b8631fc2e5e",
+  "tests/test_ota.cpp": "2b1c083d589ce52377396fb32b990fda2243716870c78c8b7835a20e7d3cf718",
+  "tests/test_runtime.cpp": "6a6d92f4fcd667bee04a578af12dcaee159fe550914d5e7402ca06a755f08714",
+  "tests/test_web.cpp": "b4c427e7c4448c302ea57cbbc614680aa1b89925bf92e0d374cdb42d313610d1",
+  "tests/test_wifi.cpp": "b9a150ed6428cc96968ba5d580df207a00f0b101dc599e88775cc8589d61d09a",
+  "scripts/test_native.sh": "0f8941110092b6598bf55be77ce92bd0e564caacac2eed49cc62427bacc74a3b"
+}

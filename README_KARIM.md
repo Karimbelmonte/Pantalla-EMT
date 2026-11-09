@@ -1,291 +1,75 @@
-# Pantalla EMT – ESP32 Departure Board
+# Operación de Pantalla EMT
 
-Proyecto basado en **ESP32 + PlatformIO (Arduino framework)** que muestra en una pantalla OLED:
+Firmware 0.13.2. Diagnóstico de reinicios en [WIFI_REINICIOS.md](validation/2026-11-09/WIFI_REINICIOS.md). Estructura en [CONTEXTO_PROYECTO.md](CONTEXTO_PROYECTO.md); pruebas realizadas y pendientes en [el informe](validation/2026-11-09/REPORT.md).
 
-- 🚌 Llegadas EMT (MobilityLabs Basic API)
-- 🌤️ Tiempo actual (OpenWeather)
-- 🌐 Configuración vía web
-- 💾 Persistencia en LittleFS
-- 🔁 Watchdog hardware (Task WDT) + watchdog lógico (Soft WDT)
+## Preparación y compilación
 
----
-
-# 🧰 Requisitos
-
-## Hardware
-
-- ESP32 Dev Module
-- Pantalla OLED compatible con U8g2
-- Cable USB de datos (no solo carga)
-
-## Software (Linux recomendado)
-
-- Python 3.12+
-- PlatformIO 6.x instalado con `pipx`
-- Usuario en grupo `dialout`
-
----
-
-# 🔧 Instalación de PlatformIO (recomendado con pipx)
+Usar la raíz de Pantalla EMT, no `departures-board/`:
 
 ```bash
-sudo apt update
-sudo apt install -y pipx
-pipx ensurepath
-source ~/.profile
-pipx install platformio
+cd '/home/karim/Escritorio/Multimedia/Pantalla EMT'
+bash scripts/test_native.sh
+pio run -e esp32dev
 ```
 
-Comprobar que se usa la versión correcta:
+La compilación usa pioarduino 55.03.37 y Arduino 3.3.7. El perfil predeterminado `esp32dev` tiene OTA automática desactivada. Su imagen es `.pio/build/esp32dev/firmware.bin`. Las pruebas nativas requieren `g++` y ArduinoJson descargado en `.pio/libdeps/esp32dev/` por PlatformIO.
+
+Para mantener intactos los productos `.pio` versionados, se puede compilar una copia temporal:
 
 ```bash
-which pio
-pio --version
+python3 scripts/validate_build.py local
 ```
 
-Debe devolver algo como:
+El script guarda manifiesto de fuentes y log en `validation/2026-11-09/`. Admite `--core-dir` para un core PlatformIO alternativo y `--environment` para elegir perfil. La revisión utilizó `/tmp/pantalla-emt-validation/core` como copia aislada; esa ruta no es una dependencia permanente del proyecto.
 
-```
-/home/usuario/.local/bin/pio
-PlatformIO Core, version 6.x.x
-```
+## Instalación y conexión
 
----
-
-# 📁 Estructura del proyecto
-
-```
-.
-├── platformio.ini
-├── src/
-│   └── main.cpp
-├── include/
-│   └── stationData.h
-└── README.md
-```
-
----
-
-# 🔄 Cómo actualizar el firmware (cada vez que cambias el código)
-
-Cada vez que modifiques `src/main.cpp`:
-
-## 1️⃣ Entrar en la carpeta del proyecto
+Cuando corresponda instalar en el ESP32 conectado por USB:
 
 ```bash
-cd ~/Escritorio/"3D prints"/"Pantalla EMT"
-```
-
-## 2️⃣ Compilar
-
-```bash
-pio run
-```
-
-Si todo está correcto verás:
-
-```
-[SUCCESS]
-```
-
-## 3️⃣ Subir al ESP32
-
-Conecta el ESP32 por USB y ejecuta:
-
-```bash
-pio run -t upload
-```
-
----
-
-## Si se queda en `Connecting.....`
-
-Procedimiento manual de bootloader:
-
-1. Mantén pulsado **BOOT**
-2. Pulsa y suelta **EN / RESET**
-3. Suelta **BOOT** cuando empiece a escribir
-
----
-
-# 🖥️ Monitor serie (logs)
-
-Para ver el arranque y logs:
-
-```bash
+pio run -e esp32dev -t upload
 pio device monitor -b 115200
 ```
 
-Salir del monitor:
+Si hay varios dispositivos, especificar el puerto mediante `--upload-port`. Si no conecta el bootloader, utilizar BOOT y EN/RESET según la placa. La subida al dispositivo y la prueba física no se realizaron en esta revisión.
 
-```
-Ctrl + ]
-```
+WiFiManager crea el punto de acceso `Pantalla EMT` cuando no hay red configurada. Si hay red guardada pero no conecta, sigue reintentando sin reiniciar ni pedir de nuevo la contraseña. Para cambiar de red, usar «Cambiar red WiFi» en la web o mantener BOOT/GPIO0 durante 3 s después de arrancar la aplicación (si la placa dispone de ese botón). Después abrir `http://pantalla-emt.local/` o la IP asignada. Completar parada, credenciales EMT y, opcionalmente, clave OpenWeather.
 
----
+## Actualizar por WiFi
 
-# 🌐 Configuración web
+Desde el móvil u ordenador conectado a la misma red, abrir `http://pantalla-emt.local/update` (o `http://IP-DE-LA-PANTALLA/update`). También hay un enlace **Actualizar por WiFi** en la configuración y en `/info`.
 
-Una vez conectado a WiFi:
+1. Pulsar **Buscar actualización**. Esta acción solo consulta la última release estable de GitHub.
+2. Si hay una versión superior válida, pulsar **Descargar e instalar** junto a esa versión. La confirmación caduca a los 10 minutos; después hay que buscar otra vez.
+3. Mantener la alimentación mientras descarga. Durante la transferencia, la pantalla y la web pueden tardar en responder. Al terminar se reinicia y `/info` muestra la nueva versión. Si falla, consultar el estado y buscar otra vez para reintentar.
 
-- Accede a `pantalla-emt.local`
-- O a la IP local del ESP32
-- Configura:
-  - StopId
-  - Nombre visible
-  - Credenciales EMT
-  - API Key OpenWeather
-  - Brillo
-  - Duración de pantallas
+Funciona en ambos perfiles, incluido `esp32dev` con instalación automática desactivada; no exige tener configurada la parada. Necesita conexión a Internet y hora válida para HTTPS. Conserva NVS y LittleFS: solo escribe la partición de aplicación OTA.
 
----
+Este menú existe desde 0.13.2. Para llegar desde una versión anterior sin USB, esa versión debe tener OTA operativa y debe publicarse la nueva release. La release preparada para ese salto es [v0.13.2](https://github.com/Karimbelmonte/Pantalla-EMT/releases/tag/v0.13.2). Ver [OTA_WIFI.md](validation/2026-11-09/OTA_WIFI.md).
 
-# 🛠️ Troubleshooting
+## Configuración
 
----
+- Nombre vacío: usa el nombre oficial de EMT cuando esté disponible; mientras tanto muestra «EMT Madrid».
+- Buses: tiempo total entre sus páginas. BUS2 solo aparece con más de tres filas; dejar al menos 5 s para la primera página.
+- Guardar aplica las duraciones sin reiniciar. El mensaje de éxito aparece después de verificar el archivo.
+- Brillo manual guardado: persiste al reiniciar. El automático usa los niveles día/noche y datos meteorológicos. `/brightness?b=80` solo hace un ajuste temporal.
+- Descanso suave: pantalla atenuada y web disponible. Descanso profundo: WiFi y pantalla apagados hasta despertar. Inicio y fin iguales equivalen a descanso permanente por horario.
 
-## ❌ Error: Permission denied `/dev/ttyUSB0`
+## Diagnóstico
 
-Añadir usuario al grupo dialout:
+`/info` muestra motivo de reset, última operación registrada antes del reinicio, estado WiFi al arrancar, versión, perfil OTA, estado del almacenamiento, WiFi, errores, antigüedad de datos, esperas entre intentos y mayor intervalo del bucle. Sin hora válida, las consultas TLS se posponen y vuelven a intentarse; comprobar NTP y conectividad. Una espera tras un error no significa necesariamente que el firmware esté bloqueado.
 
-```bash
-sudo usermod -aG dialout $USER
-```
+Las credenciales EMT y la clave OpenWeather deben comprobarse por separado. Un error meteorológico no demuestra un fallo de la pantalla. Los intervalos de reintento crecen hasta 10 minutos; modificar la parada o las credenciales correspondientes permite reintentarlo.
 
-Cerrar sesión y volver a entrar  
-(o temporalmente:)
+## Inicialización o recuperación explícita de LittleFS
+
+El firmware no formatea automáticamente si falla el montaje. Esto protege una configuración existente, pero una flash nueva puede necesitar una imagen de archivos inicial.
+
+**El siguiente procedimiento reemplaza el contenido de LittleFS y borra la configuración de aplicación guardada.** Usarlo únicamente para inicializar una placa vacía o cuando se haya decidido descartar el almacenamiento dañado. `data/` está vacío: no incluye contraseñas ni una configuración predeterminada personalizada.
 
 ```bash
-newgrp dialout
+pio run -e esp32dev -t buildfs
+pio run -e esp32dev -t uploadfs
 ```
 
-Comprobar:
-
-```bash
-groups
-```
-
-Debe aparecer `dialout`.
-
----
-
-## ❌ Error: Port is busy
-
-Ver qué proceso usa el puerto:
-
-```bash
-sudo lsof /dev/ttyUSB0
-```
-
-Cerrar el proceso que aparezca.
-
-Si es ModemManager:
-
-```bash
-sudo systemctl stop ModemManager
-sudo systemctl disable ModemManager
-```
-
----
-
-## ❌ Error: resultcallback
-
-Estás usando PlatformIO viejo (`/usr/bin/pio`).
-
-Comprobar:
-
-```bash
-which pio
-```
-
-Debe apuntar a:
-
-```
-~/.local/bin/pio
-```
-
-Si no:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
-
----
-
-## ❌ Error: No serial data received
-
-Posibles causas:
-
-- No está en modo bootloader → usar botón BOOT
-- Cable USB solo carga (no datos)
-- Puerto incorrecto
-
-Forzar puerto:
-
-```bash
-pio run -t upload --upload-port /dev/ttyUSB0
-```
-
----
-
-## ❌ No muestra buses
-
-Comprobar en `/info`:
-
-- StopId correcto
-- Credenciales EMT correctas
-- Token válido
-
----
-
-## ❌ No muestra tiempo
-
-Comprobar en `/info`:
-
-- Weather API key configurada
-- Coordenadas obtenidas
-- Sin errores en Weather
-
----
-
-# 🧹 Forzar borrado completo (si algo raro ocurre)
-
-```bash
-pio run -t erase
-pio run -t upload
-```
-
----
-
-# 📦 Actualizar PlatformIO (opcional)
-
-```bash
-pipx upgrade platformio
-```
-
----
-
-# 🧠 Arquitectura básica
-
-ESP32  
- ├── WiFiManager (solo WiFi)  
- ├── WebServer (/config, /info)  
- ├── EMT API (MobilityLabs Basic)  
- ├── OpenWeather API  
- ├── LittleFS (config.json)  
- ├── Task Watchdog (hardware)  
- └── Soft Watchdog (lógico)
-
----
-
-# 🔁 Flujo normal de desarrollo
-
-1. Editar `main.cpp`
-2. `pio run`
-3. `pio run -t upload`
-4. `pio device monitor`
-
----
-
-Proyecto listo para desarrollo iterativo seguro.
+Después reiniciar y configurar de nuevo desde la web. No usar un borrado completo de flash como paso habitual de actualización. WiFiManager usa almacenamiento separado de LittleFS.

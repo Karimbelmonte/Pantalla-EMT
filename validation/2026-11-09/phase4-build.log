@@ -1,0 +1,338 @@
+Processing esp32dev (platform: https://github.com/pioarduino/platform-espressif32/releases/download/stable/platform-espressif32.zip; board: esp32dev; framework: arduino)
+--------------------------------------------------------------------------------
+Warning: No internet connection detected, Python dependency check will be skipped.
+Warning: No internet connection detected, Python dependency check will be skipped.
+Verbose mode can be enabled via `-v, --verbose` option
+Warning: No internet connection detected, Python dependency check will be skipped.
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32dev.html
+PLATFORM: Espressif 32 (55.3.37) > Espressif ESP32 Dev Module
+HARDWARE: ESP32 240MHz, 320KB RAM, 4MB Flash
+DEBUG: Current (cmsis-dap) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - contrib-piohome @ 3.4.4 
+ - framework-arduinoespressif32 @ 3.3.7 
+ - framework-arduinoespressif32-libs @ 5.5.0+sha.87912cd291 
+ - tool-esptoolpy @ 5.1.2 
+ - toolchain-xtensa-esp-elf @ 14.2.0+20251107
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 47 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- WiFiManager @ 2.0.17
+|-- U8g2 @ 2.36.5
+|-- ArduinoJson @ 7.2.0
+|-- LittleFS @ 3.3.7
+|-- ESPmDNS @ 3.3.7
+|-- FS @ 3.3.7
+|-- HTTPClient @ 3.3.7
+|-- SPI @ 3.3.7
+|-- WebServer @ 3.3.7
+|-- WiFi @ 3.3.7
+|-- NetworkClientSecure @ 3.3.7
+|-- Update @ 3.3.7
+|-- stationData
+Building in release mode
+Compiling .pio/build/esp32dev/lib7c0/AsyncUDP/AsyncUDP.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkClient.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkEvents.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkInterface.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkManager.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkServer.cpp.o
+Compiling .pio/build/esp32dev/lib144/Network/NetworkUdp.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/AP.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/STA.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFi.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFiAP.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFiGeneric.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFiMulti.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFiSTA.cpp.o
+Compiling .pio/build/esp32dev/libbe8/WiFi/WiFiScan.cpp.o
+Compiling .pio/build/esp32dev/libd2f/DNSServer/DNSServer.cpp.o
+Compiling .pio/build/esp32dev/lib222/ESPmDNS/ESPmDNS.cpp.o
+Compiling .pio/build/esp32dev/lib150/Hash/PBKDF2_HMACBuilder.cpp.o
+Compiling .pio/build/esp32dev/lib150/Hash/SHA1Builder.cpp.o
+Compiling .pio/build/esp32dev/lib150/Hash/SHA2Builder.cpp.o
+Compiling .pio/build/esp32dev/lib150/Hash/SHA3Builder.cpp.o
+Compiling .pio/build/esp32dev/lib32c/Update/HttpsOTAUpdate.cpp.o
+Compiling .pio/build/esp32dev/lib32c/Update/Updater.cpp.o
+Compiling .pio/build/esp32dev/lib32c/Update/Updater_Signing.cpp.o
+Compiling .pio/build/esp32dev/libf77/FS/FS.cpp.o
+Compiling .pio/build/esp32dev/libf77/FS/vfs_api.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/Parsing.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/WebServer.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/detail/mimetable.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/middleware/AuthenticationMiddleware.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/middleware/CorsMiddleware.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/middleware/LoggingMiddleware.cpp.o
+Compiling .pio/build/esp32dev/lib7a8/WebServer/middleware/MiddlewareChain.cpp.o
+Compiling .pio/build/esp32dev/lib53f/WiFiManager/WiFiManager.cpp.o
+Compiling .pio/build/esp32dev/libadc/SPI/SPI.cpp.o
+Compiling .pio/build/esp32dev/liba98/Wire/Wire.cpp.o
+Compiling .pio/build/esp32dev/lib080/U8g2/U8g2lib.cpp.o
+Compiling .pio/build/esp32dev/lib080/U8g2/U8x8lib.cpp.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/mui.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/mui_u8g2.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_arc.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_bitmap.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_box.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_buffer.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_button.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_circle.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_cleardisplay.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_d_memory.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_d_setup.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_font.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_fonts.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_hvline.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_input_value.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_intersection.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_kerning.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_line.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_ll_hvline.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_message.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_polygon.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_selection_list.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8g2_setup.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8log.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8log_u8g2.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8log_u8x8.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_8x8.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_byte.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_cad.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_capture.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_a2printer.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ch1120.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_gp1247ai.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_gp1287ai.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_gp1294ai.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_gu800.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_hd44102.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_il3820_296x128.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ist3020.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ist3088.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ist7920.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ks0108.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_lc7981.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ld7032_60x32.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ls013b7dh03.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_max7219.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_pcd8544_84x48.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_pcf8812.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_pcf8814_hx1230.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_s1d15300.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_s1d15721.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_s1d15e06.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sbn1661.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sed1330.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sh1106_64x32.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sh1106_72x40.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sh1107.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sh1108.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_sh1122.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1305.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_128x32.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_128x64_noname.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_2040x16.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_48x64.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_64x32.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_64x48.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_72x40.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_96x16.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1306_96x40.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1309.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1312.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1316.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1317.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1318.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1320.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1322.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1325.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1326.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1327.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1329.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1362.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1363.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1606_172x72.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_ssd1607_200x200.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7301.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7302.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7511.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st75160.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st75161.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st75256.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7528.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st75320.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7539.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7565.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7567.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7571.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_erc240160.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_jlx320160.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_jlx384160.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_md240128.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_s028hn118a.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7586s_ymc240160.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7588.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_st7920.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_t6963.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1601.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1604.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1608.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1609.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1610.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1611.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1617.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1628.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1638.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1701_dogs102.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_d_uc1701_mini12864.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_debounce.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_display.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_fonts.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_gpio.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_input_value.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_message.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_selection_list.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_setup.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_string.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_u16toa.c.o
+Compiling .pio/build/esp32dev/lib080/U8g2/clib/u8x8_u8toa.c.o
+Compiling .pio/build/esp32dev/lib3a3/LittleFS/LittleFS.cpp.o
+Compiling .pio/build/esp32dev/libb79/NetworkClientSecure/NetworkClientSecure.cpp.o
+Compiling .pio/build/esp32dev/libb79/NetworkClientSecure/ssl_client.cpp.o
+Compiling .pio/build/esp32dev/lib1ad/HTTPClient/HTTPClient.cpp.o
+Compiling .pio/build/esp32dev/src/config.cpp.o
+Compiling .pio/build/esp32dev/src/main.cpp.o
+Compiling .pio/build/esp32dev/src/ota.cpp.o
+Compiling .pio/build/esp32dev/src/secure_client.cpp.o
+Compiling .pio/build/esp32dev/src/web_server.cpp.o
+Building .pio/build/esp32dev/bootloader.bin
+Generating partitions .pio/build/esp32dev/partitions.bin
+Compiling .pio/build/esp32dev/FrameworkArduino/ColorFormat.c.o
+esptool v5.1.2
+Creating ESP32 image...
+Merged 2 ELF sections.
+Successfully created ESP32 image.
+Compiling .pio/build/esp32dev/FrameworkArduino/Esp.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/FirmwareMSC.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/FunctionalInterrupt.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/HEXBuilder.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/HWCDC.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/HardwareSerial.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/HashBuilder.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/IPAddress.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/MD5Builder.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/MacAddress.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/Print.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/Stream.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/StreamString.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/Tone.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/USB.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/USBCDC.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/USBMSC.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/WMath.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/WString.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/base64.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/cbuf.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/chip-debug-report.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-adc.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-bt.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-cpu.c.o
+In file included from /tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32-libs/esp32/include/bt/include/esp32/include/esp_bt.h:16,
+                 from /tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-bt.c:30:
+/tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32-libs/esp32/include/bt/include/esp32/include/../../../../controller/esp32/esp_bredr_cfg.h:18:9: note: '#pragma message: BT: forcing BR/EDR max sync conn eff to 1 (Bluedroid HFP requires SCO/eSCO)'
+   18 | #pragma message ("BT: forcing BR/EDR max sync conn eff to 1 (Bluedroid HFP requires SCO/eSCO)")
+      |         ^~~~~~~
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-dac.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-gpio.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-hosted.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-i2c-ng.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-i2c-slave.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-i2c.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-ledc.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-log-wrapper.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-matrix.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-misc.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-periman.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-psram.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-rgb-led.c.o
+In file included from /tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32-libs/esp32/include/bt/include/esp32/include/esp_bt.h:16,
+                 from /tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32/cores/esp32/esp32-hal-misc.c:29:
+/tmp/pantalla-emt-validation/core/packages/framework-arduinoespressif32-libs/esp32/include/bt/include/esp32/include/../../../../controller/esp32/esp_bredr_cfg.h:18:9: note: '#pragma message: BT: forcing BR/EDR max sync conn eff to 1 (Bluedroid HFP requires SCO/eSCO)'
+   18 | #pragma message ("BT: forcing BR/EDR max sync conn eff to 1 (Bluedroid HFP requires SCO/eSCO)")
+      |         ^~~~~~~
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-rmt.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-sigmadelta.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-spi.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-time.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-timer.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-tinyusb.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-touch-ng.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-touch.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/esp32-hal-uart.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/firmware_msc_fat.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/freertos_stats.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/idf_openthread_mpool_wrapper.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/libb64/cdecode.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/libb64/cencode.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/main.cpp.o
+Compiling .pio/build/esp32dev/FrameworkArduino/stdlib_noniso.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/wiring_pulse.c.o
+Compiling .pio/build/esp32dev/FrameworkArduino/wiring_shift.c.o
+Archiving .pio/build/esp32dev/libFrameworkArduino.a
+Indexing .pio/build/esp32dev/libFrameworkArduino.a
+src/main.cpp: In lambda function:
+src/main.cpp:513:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  513 |       StaticJsonDocument<3072> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+In file included from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.hpp:56,
+                 from .pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/main.cpp:34:
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:672:5: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  672 |     StaticJsonDocument<8192> doc;
+      |     ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+src/main.cpp: In lambda function:
+src/main.cpp:830:7: warning: 'template<unsigned int N> class ArduinoJson::V720PB22::StaticJsonDocument' is deprecated: use JsonDocument instead [-Wdeprecated-declarations]
+  830 |       StaticJsonDocument<4096> doc;
+      |       ^~~~~~~~~~~~~~~~~~
+.pio/libdeps/esp32dev/ArduinoJson/src/ArduinoJson/compatibility.hpp:63:58: note: declared here
+   63 | class ARDUINOJSON_DEPRECATED("use JsonDocument instead") StaticJsonDocument
+      |                                                          ^~~~~~~~~~~~~~~~~~
+Linking .pio/build/esp32dev/firmware.elf
+                            Memory Type Usage Summary                             
+┏━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┓
+┃ Memory Type/Section ┃ Used [bytes] ┃ Used [%] ┃ Remain [bytes] ┃ Total [bytes] ┃
+┡━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━┩
+│ Flash Code          │       972028 │          │                │               │
+│    .text            │       972028 │          │                │               │
+│ Flash Data          │       322140 │          │                │               │
+│    .rodata          │       321884 │          │                │               │
+│    .appdesc         │          256 │          │                │               │
+│ IRAM                │        96347 │    73.51 │          34725 │        131072 │
+│    .text            │        95319 │    72.72 │                │               │
+│    .vectors         │         1028 │     0.78 │                │               │
+│ DRAM                │        60793 │     48.8 │          63787 │        124580 │
+│    .bss             │        34592 │    27.77 │                │               │
+│    .data            │        26201 │    21.03 │                │               │
+└─────────────────────┴──────────────┴──────────┴────────────────┴───────────────┘
+Total image size: 1416716 bytes (.bin may be padded larger)
+Note: The reported total sizes may be smaller than those in the technical reference manual due to reserved memory and application configuration. The total flash size available for the application is not included by default, as it cannot be reliably determined due to the presence of other data like the bootloader, partition table, and application partition size.
+Retrieving maximum program size .pio/build/esp32dev/firmware.elf
+Checking size .pio/build/esp32dev/firmware.elf
+Advanced Memory Usage is available via "PlatformIO Home > Project Inspect"
+RAM:   [==        ]  18.6% (used 60796 bytes from 327680 bytes)
+Flash: [=======   ]  72.0% (used 1416460 bytes from 1966080 bytes)
+Building .pio/build/esp32dev/firmware.bin
+esptool v5.1.2
+Creating ESP32 image...
+Merged 2 ELF sections.
+Successfully created ESP32 image.
+========================= [SUCCESS] Took 23.17 seconds =========================
